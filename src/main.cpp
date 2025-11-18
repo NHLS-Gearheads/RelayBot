@@ -12,12 +12,13 @@ const int MOTOR_B_EN = 7;    // Enable/Speed control
 // ===== TIMING CONFIGURATION =====
 // You'll need to calibrate this value for your specific robot
 // Start with this and adjust based on testing
-const int TURN_180_TIME = 925;  // Time in milliseconds to turn 180 degrees
-const int METER_TIME = 4000;    // Time in milliseconds to drive 1 meter forwards or backwards
+const int TURN_180_TIME = 900;  // Time in milliseconds to turn 180 degrees
+const int METER_TIME = 2500;    // Time in milliseconds to drive 1 meter forwards or backwards
 
 // ===== FUNCTION DECLARATIONS =====
 void ForwardBackward_1Meter();
 void robotForward(int speed);
+void robotBackward(int speed);
 void robotStop();
 void robotTurnRight(int speed);
 void robotTurnLeft(int speed);
@@ -53,28 +54,24 @@ void loop() {
   Serial.println("\n=== Starting 180 degree rotation sequence ===\n");
   
   // Turn right 180 degrees
-  Serial.println("Turning RIGHT 180 degrees...");
-  robotTurnRight(200);  // Turn at speed 200
+  robotTurnRight(255);
   delay(TURN_180_TIME);
   robotStop();
   
-  Serial.println("Stopped. Waiting 2 seconds...");
   delay(2000);
   
   // Turn left 180 degrees (back to original position)
-  Serial.println("Turning LEFT 180 degrees (returning to start)...");
-  robotTurnLeft(200);  // Same speed for consistency
+  robotTurnLeft(255);
   delay(TURN_180_TIME);
   robotStop();
   
-  Serial.println("Back to original position!");
-  Serial.println("=== Waiting 5 seconds before Forward Backward 1 Meter ===");
+  Serial.println("\n=== Waiting 5 seconds before Forward Backward 1 Meter ===");
   delay(5000);
 
   // The complete Forward Backward function
-  Serial.print("Starting Forward Backward function...");
   ForwardBackward_1Meter();
   Serial.println("\n=== Waiting 5 seconds before restart ===\n");
+  delay(5000);
 }
 
 // ===== ROBOT CONTROL FUNCTIONS =====
@@ -87,6 +84,16 @@ void robotForward(int speed) {
   // Motor B - Forward (reversed direction)
   analogWrite(MOTOR_B_IN1, 0);
   analogWrite(MOTOR_B_IN2, speed);
+}
+
+void robotBackward(int speed) {
+  // Motor A - Backward
+  analogWrite(MOTOR_A_IN1, 0);
+  analogWrite(MOTOR_A_IN2, speed);
+  
+  // Motor B - Backward (reversed direction)
+  analogWrite(MOTOR_B_IN1, speed);
+  analogWrite(MOTOR_B_IN2, 0);
 }
 
 void robotTurnRight(int speed) {
@@ -122,24 +129,23 @@ void robotStop() {
 // Forward Backward 1 Meter
 
 void ForwardBackward_1Meter() {
-  analogWrite(MOTOR_A_IN1, 230);
-  analogWrite(MOTOR_A_IN2, 0);
-  analogWrite(MOTOR_B_IN1, 255);
-  analogWrite(MOTOR_B_IN2, 0);
-  millis(METER_TIME);
-  analogWrite(MOTOR_A_IN1, 0);
-  analogWrite(MOTOR_A_IN2, 0);
-  analogWrite(MOTOR_B_IN1, 0);
-  analogWrite(MOTOR_B_IN2, 0);
-  millis(1000);
-  analogWrite(MOTOR_A_IN1, 0);
-  analogWrite(MOTOR_A_IN2, 255);
-  analogWrite(MOTOR_B_IN1, 0);
-  analogWrite(MOTOR_B_IN2, 250);
-  millis(METER_TIME);
-  analogWrite(MOTOR_A_IN1, 0);
-  analogWrite(MOTOR_A_IN2, 0);
-  analogWrite(MOTOR_B_IN1, 0);
-  analogWrite(MOTOR_B_IN2, 0);
-  millis(5000);
+  // Go forward for METER_TIME
+  Serial.println("  Moving forward 1 meter...");
+  robotForward(240);
+  delay(METER_TIME);
+
+  // Stop for 1 second
+  Serial.println("  Stopping for 1 second...");
+  robotStop();
+  delay(1000);
+
+  // Go backward for METER_TIME
+  Serial.println("  Moving backward 1 meter...");
+  robotBackward(240);
+  delay(METER_TIME);
+
+  // Stop
+  Serial.println("  Stopping.");
+  robotStop();
+  delay(1000);
 }
