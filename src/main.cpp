@@ -14,6 +14,7 @@ const int MOTOR_B_EN = 7;    // Enable/Speed control
 // Start with this and adjust based on testing
 const int TURN_180_TIME = 900;  // Time in milliseconds to turn 180 degrees
 const int METER_TIME = 2500;    // Time in milliseconds to drive 1 meter forwards or backwards
+const int TURN_90_TIME = 462;   // Time in milliseconds to turn 180 degrees
 
 // ===== FUNCTION DECLARATIONS =====
 void ForwardBackward_1Meter();
@@ -51,6 +52,25 @@ void setup() {
 }
 
 void loop() {
+  
+  Serial.println("\n=== Starting 90 degree rotation sequence ===\n");
+
+  // Turn right 90 degrees
+  Serial.println("Turning RIGHT 90 degrees...");
+  robotTurnRight(100);  // Turn at speed 100
+  delay(TURN_90_TIME);
+  robotStop();
+
+  delay(2000);
+
+  // Turn left 90 degrees
+  Serial.println("Turning RIGHT 90 degrees...");
+  robotTurnLeft(100);  // Turn at speed 100
+  delay(TURN_90_TIME);
+  robotStop();
+
+  delay(2000)
+
   Serial.println("\n=== Starting 180 degree rotation sequence ===\n");
   
   // Turn right 180 degrees
