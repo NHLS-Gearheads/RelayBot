@@ -69,7 +69,7 @@ void loop() {
   delay(TURN_90_TIME);
   robotStop();
 
-  delay(2000)
+  delay(2000);
 
   Serial.println("\n=== Starting 180 degree rotation sequence ===\n");
   
