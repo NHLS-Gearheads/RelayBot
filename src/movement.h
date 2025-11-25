@@ -7,8 +7,8 @@ void robotBackward(int speed);
 void robotStop();
 
 // Turning
-void robotTurnRight90(int speed);
-void robotTurnLeft90(int speed);
+void robotTurnRight(int speed);
+void robotTurnLeft(int speed);
 void robotTurnRight180(int speed);
 void robotTurnLeft180(int speed);
 

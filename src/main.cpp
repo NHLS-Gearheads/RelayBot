@@ -27,45 +27,48 @@ void setup() {
 
 void loop() {
   
-  long dist = readUltrasonicCM();
-if (dist > 0 && dist < 15) {        
-    // --- TUNING VARIABLES ---
-    int DODGE_TIME = TURN_90_TIME * 1.4; // Time to turn OUT
-    
-    robotStop();
-    delay(200);
-    
-    // 1. Back up 
-    robotBackward(180);
-    delay(600);     
-    robotStop();
-    delay(100);
+  // long dist = readUltrasonicCM();
+  // if (dist > 0 && dist < 15) {        
+  //     // --- TUNING VARIABLES ---
+  //     int DODGE_TIME = TURN_90_TIME * 1.4; // Time to turn OUT
+      
+  //     robotStop();
+  //     delay(200);
+      
+  //     // 1. Back up 
+  //     robotBackward(180);
+  //     delay(600);     
+  //     robotStop();
+  //     delay(100);
 
-    // --- PHASE 1: DODGE OUT ---
-    // Arc Left (Angling away)
-    robotTurnLeftCurb(180); 
-    delay(DODGE_TIME); 
+  //     // --- PHASE 1: DODGE OUT ---
+  //     // Arc Left (Angling away)
+  //     robotTurnLeftCurb(180); 
+  //     delay(DODGE_TIME); 
 
-    robotForward(180);
-    delay(1000); 
+  //     robotForward(180);
+  //     delay(1000); 
 
-    robotTurnRightCurb(180);
-    delay(DODGE_TIME);
+  //     robotTurnRightCurb(180);
+  //     delay(DODGE_TIME);
 
-    robotTurnRightCurb(180);
-    delay(DODGE_TIME);
+  //     robotTurnRightCurb(180);
+  //     delay(DODGE_TIME);
 
-    robotForward(180);
-    delay(1500); 
+  //     robotForward(180);
+  //     delay(1500); 
 
-    robotTurnLeftCurb(180);
-    delay(850);
+  //     robotTurnLeftCurb(180);
+  //     delay(850);
 
-    robotStop();
+  //     robotStop();
 
-  } else {
-    // Path is clear, keep moving
-    robotForward(180);
-  }
+  // } else {
+  //   // Path is clear, keep moving
+  //   robotForward(180);
+  // }
+
+  turnDegrees(90, 255);
+  turnDegrees(-90, 255);
 
 }
