@@ -21,7 +21,7 @@ void robotBackward(int speed) {
   analogWrite(MOTOR_B_IN4, speed);
 }
 
-void robotTurnRight90(int speed) {
+void robotTurnRight(int speed) {
   
   analogWrite(MOTOR_A_IN1, speed);
   analogWrite(MOTOR_A_IN2, 0);
@@ -30,8 +30,7 @@ void robotTurnRight90(int speed) {
   analogWrite(MOTOR_B_IN3, 0);
   analogWrite(MOTOR_B_IN4, speed);
 }
-
-void robotTurnLeft90(int speed) {
+void robotTurnLeft(int speed) {
   
   analogWrite(MOTOR_A_IN1, 0);
   analogWrite(MOTOR_A_IN2, speed);
