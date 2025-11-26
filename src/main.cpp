@@ -27,6 +27,7 @@ void setup() {
 
 void loop() {
   
+  // Hardcoded Object Detection, must be removed
   // long dist = readUltrasonicCM();
   // if (dist > 0 && dist < 15) {        
   //     // --- TUNING VARIABLES ---
@@ -68,7 +69,13 @@ void loop() {
   //   robotForward(180);
   // }
 
+  // Testing code for movement
+  moveTicks(130, 255);
+  moveTicks(-130, 255);
+  
   turnDegrees(90, 255);
   turnDegrees(-90, 255);
+  turnDegrees(20, 255);
+  turnDegrees(-20, 255);
 
 }

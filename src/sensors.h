@@ -7,5 +7,6 @@ long readUltrasonicCM();
 
 // Rotation Sensor reading
 void turnDegrees(int degrees, int speed);
+void moveTicks(int ticks, int speed);
 
 #endif
