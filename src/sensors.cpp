@@ -14,10 +14,65 @@ long readUltrasonicCM() {
   return distance;
 }
 
+// Move by amount of ticks
 bool prevLeftState = false;
 bool prevRightState = false;
 
-// The Function to Turn Degrees
+void moveTicks(int ticks, int speed) {
+  // 1. Calculate Target (Absolute value)
+  int targetTicks = abs(ticks);
+
+  // Safety check
+  if (targetTicks < 1) return;
+
+  Serial.print("Moving ");
+  Serial.print(ticks > 0 ? "Forward " : "Backward ");
+  Serial.print("for total ticks: ");
+  Serial.println(targetTicks);
+
+  // 2. Reset Counters
+  int currentTicks = 0;
+
+  // Read initial states (Important to update reference before moving)
+  prevLeftState = (analogRead(SENSOR_PIN_LEFT) > THRESHOLD);
+  prevRightState = (analogRead(SENSOR_PIN_RIGHT) > THRESHOLD);
+
+  // 3. Start Motors based on sign of 'ticks'
+  if (ticks > 0) {
+    // --- FORWARD (Positive Ticks) ---
+    robotForward(speed);
+  } else {
+    // --- BACKWARD (Negative Ticks) ---
+    robotBackward(speed);
+  }
+
+  // 4. Blocking Loop: Count Ticks until Target Reached
+  while (currentTicks < targetTicks) {
+
+    // --- Read Left Sensor ---
+    bool currLeftState = (analogRead(SENSOR_PIN_LEFT) > THRESHOLD);
+    if (currLeftState != prevLeftState) {
+      // Count only on rising edge (to match your turnDegrees logic)
+      if (currLeftState == true) currentTicks++;
+      prevLeftState = currLeftState;
+    }
+
+    // --- Read Right Sensor ---
+    bool currRightState = (analogRead(SENSOR_PIN_RIGHT) > THRESHOLD);
+    if (currRightState != prevRightState) {
+      // Count only on rising edge
+      if (currRightState == true) currentTicks++;
+      prevRightState = currRightState;
+    }
+  }
+
+  // 5. Target Reached -> Stop
+  robotStop();
+  Serial.println("Movement Complete.");
+  delay(500); // Settle time
+}
+
+// The Function to Turn by Degrees
 void turnDegrees(int degrees, int speed) {
   // 1. Calculate Target Ticks
   float targetTicksFloat = abs(degrees) * TICKS_PER_DEGREE;
