@@ -1,242 +1,211 @@
 #include <Arduino.h>
 
-// ===== PIN CONFIGURATION =====
-const int MOTOR_A_IN1 = 11;  // Direction control 1 (PWM)
-const int MOTOR_A_IN2 = 10;  // Direction control 2 (PWM)
-const int MOTOR_A_EN = 8;    // Enable/Speed control
+// ================================================================
+// ==================== KRAL AYARLAR (V11) ========================
+// ================================================================
 
-const int MOTOR_B_IN1 = 9;   // Direction control 1 (PWM)
-const int MOTOR_B_IN2 = 3;   // Direction control 2 (PWM)
-const int MOTOR_B_EN = 7;    // Enable/Speed control 
+// 1. HIZ VE MOTOR
+const int HIZ = 160;            // Temel Hız
+const int SAG_MOTOR_OFSET = 15; // Düz giderken sağa çekiyorsa bunu azalt
 
-// Ultrasonic sensor pins
-const int ULTRA_TRIG = 4;  // Trig pin
-const int ULTRA_ECHO = 12;  // Echo pin
+// 2. DÖNÜŞ SÜRELERİ (Senin 300/600 ayarın)
+int SURE_90 = 450;       
+int SURE_180 = 800;      
 
-// ===== TIMING CONFIGURATION =====
-// You'll need to calibrate this value for your specific robot
-// Start with this and adjust based on testing
-const int TURN_180_TIME = 900;  // Time in milliseconds to turn 180 degrees
-const int METER_TIME = 2500;    // Time in milliseconds to drive 1 meter forwards or backwards
-const int TURN_90_TIME = 730;
+// 3. MESAFE SINIRLARI
+const int BOSLUK_SINIRI = 30;   // 30 cm üzeri "Yol Var" demektir
+const int DUVAR_DURMA = 13;     // Ön duvara 13 cm kala dur
 
-// ===== FUNCTION DECLARATIONS =====
-void ForwardBackward_1Meter();
-void robotForward(int speed);
-void robotBackward(int speed);
-void robotStop();
-void robotTurnRight180(int speed);
-void robotTurnLeft180(int speed);
-void robotTurnRight90(int speed);
-void robotTurnLeft90(int speed);
-long readUltrasonicCM(); 
+// 4. İLERLEME SÜRELERİ
+const int KAVSAK_ORTALA = 250;  // Dönmeden önce azıcık öne gitme
+const int YENI_YOL_GIRIS = 400; // Döndükten sonra koridora girme süresi
+
+// ==================== PINLER ====================================
+const int MA1 = 10; const int MA2 = 11; // Sol Motor
+const int MB1 = 3;  const int MB2 = 9;  // Sağ Motor
+
+const int T_ON=4, E_ON=12;
+const int T_SAG=5, E_SAG=6;
+const int T_SOL=2, E_SOL=13; 
+
+long distOn, distSag, distSol;
+
+// Fonksiyonlar
+void duzGitVeDengele(int sure); // Duvar takipçisi
+void manevra(int solHiz, int sagHiz);
+void solaDon();
+void sagaDon();
+void geriDon();
+void dur();
+void hafifGeri();
+long mesafeOlc(int trig, int echo);
 
 void setup() {
-  // Initialize Serial for debugging
   Serial.begin(9600);
-  Serial.println("Robot 180 Degree Spin Test");
-  Serial.println("==========================");
   
-  // Configure Motor A pins
-  pinMode(MOTOR_A_IN1, OUTPUT);
-  pinMode(MOTOR_A_IN2, OUTPUT);
-  pinMode(MOTOR_A_EN, OUTPUT);
+  pinMode(MA1, OUTPUT); pinMode(MA2, OUTPUT);
+  pinMode(MB1, OUTPUT); pinMode(MB2, OUTPUT);
   
-  // Configure Motor B pins
-  pinMode(MOTOR_B_IN1, OUTPUT);
-  pinMode(MOTOR_B_IN2, OUTPUT);
-  pinMode(MOTOR_B_EN, OUTPUT);
-  
-  // Enable both motors
-  digitalWrite(MOTOR_A_EN, HIGH);
-  digitalWrite(MOTOR_B_EN, HIGH);
+  pinMode(T_ON, OUTPUT); pinMode(E_ON, INPUT);
+  pinMode(T_SAG, OUTPUT); pinMode(E_SAG, INPUT);
+  pinMode(T_SOL, OUTPUT); pinMode(E_SOL, INPUT);
 
+  pinMode(7, INPUT); pinMode(8, INPUT); // Enkoder iptal
 
-  pinMode(ULTRA_TRIG, OUTPUT);
-  pinMode(ULTRA_ECHO, INPUT);
-
-  
-  // Start with robot stopped
-  robotStop();
-  
-  Serial.println("Setup complete. Starting test in 3 seconds...");
-  delay(3000);
+  delay(3000); 
 }
 
 void loop() {
+  // 1. DUR VE ANALİZ ET
+  dur();
+  delay(300); // Net okuma için bekle
+  
+  distSol = mesafeOlc(T_SOL, E_SOL);
+  distSag = mesafeOlc(T_SAG, E_SAG);
+  distOn  = mesafeOlc(T_ON, E_ON);
+  
+  Serial.print("L:"); Serial.print(distSol);
+  Serial.print(" F:"); Serial.print(distOn);
+  Serial.print(" R:"); Serial.println(distSag);
 
-// --- Core obstacle-avoidance logic ---
-// Call this inside loop(): measure distance, decide, then move.
-long dist = readUltrasonicCM();      // Take one distance measurement (in centimeters) from HC-SR04.
-Serial.print("Distance: ");          // Print label for debugging on the Serial Monitor.
-Serial.println(dist);                // Print the measured distance value.
+  // === GÜVENLİK: SIKIŞMA KONTROLÜ ===
+  if (distOn > 0 && distOn < 5) {
+    hafifGeri();
+    return;
+  }
 
-// If we got a valid reading (>0) and it's closer than 10 cm, treat it as an obstacle.
-if (dist > 0 && dist < 10) {         // 10 cm threshold
-  robotStop();                       
-  delay(200);                        
+  // === MANTIK: BASİT VE NET SOL EL KURALI ===
+  // Karşılaştırma yok. Sırayla kontrol var.
 
-  robotBackward(180);                
-  delay(500);                        
-  robotStop();                       
-
-  robotTurnLeft90(180);             
-  delay(TURN_90_TIME);               
-  robotStop();                       
-
-} else {                             
-  robotForward(180);                 
+  // 1. ÖNCELİK: SOL AÇIK MI? -> DÖN
+  if (distSol > BOSLUK_SINIRI) {
+    Serial.println("KARAR: SOL BOS -> SOLA DON");
+    
+    // Kavşağa hizalan
+    duzGitVeDengele(KAVSAK_ORTALA);
+    dur();
+    delay(100);
+    
+    solaDon();
+    
+    // Yeni yola gir
+    duzGitVeDengele(YENI_YOL_GIRIS);
+  }
+  
+  // 2. ÖNCELİK: ÖNÜM AÇIK MI? -> DÜZ GİT
+  // (Sol doluysa buraya bakar)
+  else if (distOn > DUVAR_DURMA) {
+    Serial.println("KARAR: ON BOS -> DUZ GIT");
+    // Düz git ama kör gitme, duvarları takip et!
+    duzGitVeDengele(400); 
+  }
+  
+  // 3. ÖNCELİK: SAĞ AÇIK MI? -> DÖN
+  // (Sol ve Ön doluysa buraya bakar)
+  else if (distSag > BOSLUK_SINIRI) {
+    Serial.println("KARAR: SAG BOS -> SAGA DON");
+    
+    duzGitVeDengele(KAVSAK_ORTALA);
+    dur();
+    delay(100);
+    
+    sagaDon();
+    
+    duzGitVeDengele(YENI_YOL_GIRIS);
+  }
+  
+  // 4. HİÇBİR YER YOK -> GERİ DÖN
+  else {
+    Serial.println("KARAR: CIKMAZ -> GERI");
+    geriDon();
+  }
 }
 
-Serial.println("\n=== Starting 90 degree rotation sequence ===\n");
+// ==================== FONKSİYONLAR ====================
 
-// Turn right 90 degrees
-Serial.println("Turning RIGHT 90 degrees...");
-robotTurnRight90(180);  // Turn at speed 100
-delay(TURN_90_TIME);
-robotStop();
-
-delay(2000);
-
-// Turn left 90 degrees
-Serial.println("Turning RIGHT 90 degrees...");
-robotTurnLeft90(180);  // Turn at speed 100
-delay(TURN_90_TIME);
-robotStop();
-
-delay(2000);
-
-Serial.println("\n=== Starting 180 degree rotation sequence ===\n");
+// Bu fonksiyon robotun koridorun ortasından gitmesini sağlar
+void duzGitVeDengele(int sure) {
+  unsigned long baslangic = millis();
   
-// Turn right 180 degrees
-robotTurnRight180(255);
-delay(TURN_180_TIME);
-robotStop();
-  
-delay(2000);
+  while(millis() - baslangic < (unsigned long)sure) {
+    long anlikSol = mesafeOlc(T_SOL, E_SOL);
+    long anlikSag = mesafeOlc(T_SAG, E_SAG);
+    
+    // GÜVENLİK: Önüme duvar çıktı mı?
+    if (mesafeOlc(T_ON, E_ON) < DUVAR_DURMA) {
+      dur();
+      break;
+    }
 
-// Turn left 180 degrees (back to original position)
-robotTurnLeft180(255);
-delay(TURN_180_TIME);
-robotStop();
-  
-Serial.println("\n=== Waiting 5 seconds before Forward Backward 1 Meter ===");
-delay(5000);
-
-// The complete Forward Backward function
-ForwardBackward_1Meter();
-Serial.println("\n=== Waiting 5 seconds before restart ===\n");
-delay(5000);
-
-
+    // --- ORTALAMA MANTIĞI ---
+    // Sola çok yaklaştım (Sol < 8cm) -> SAĞA KIR
+    if (anlikSol < 8 && anlikSol > 0) {
+      manevra(HIZ + 20, HIZ - 10); 
+    }
+    // Sağa çok yaklaştım (Sağ < 8cm) -> SOLA KIR
+    else if (anlikSag < 8 && anlikSag > 0) {
+      manevra(HIZ - 20, HIZ + 30); 
+    }
+    // Ortadaysam -> Düz devam
+    else {
+      manevra(HIZ, HIZ + SAG_MOTOR_OFSET);
+    }
+    
+    delay(20); 
+  }
+  dur();
 }
 
-
-
-// ===== ROBOT CONTROL FUNCTIONS =====
-
-void robotForward(int speed) {
-  // Motor A - Forward
-  analogWrite(MOTOR_A_IN1, speed);
-  analogWrite(MOTOR_A_IN2, 0);
+void manevra(int solHiz, int sagHiz) {
+  if (solHiz > 255) solHiz = 255; if (solHiz < 0) solHiz = 0;
+  if (sagHiz > 255) sagHiz = 255; if (sagHiz < 0) sagHiz = 0;
   
-  // Motor B - Forward (reversed direction)
-  analogWrite(MOTOR_B_IN1, speed);
-  analogWrite(MOTOR_B_IN2, 0);
+  analogWrite(MA1, solHiz); analogWrite(MA2, 0);
+  analogWrite(MB1, sagHiz); analogWrite(MB2, 0);
 }
 
-void robotBackward(int speed) {
-  // Motor A - Backward
-  analogWrite(MOTOR_A_IN1, 0);
-  analogWrite(MOTOR_A_IN2, speed);
-  
-  // Motor B - Backward (reversed direction)
-  analogWrite(MOTOR_B_IN1, 0);
-  analogWrite(MOTOR_B_IN2, speed);
+void solaDon() {
+  analogWrite(MA1, 0);   analogWrite(MA2, HIZ);
+  analogWrite(MB1, HIZ); analogWrite(MB2, 0);
+  delay(SURE_90);
+  dur();
+  delay(200);
 }
 
-void robotTurnRight90(int speed) {
-  
-  analogWrite(MOTOR_A_IN1, speed);
-  analogWrite(MOTOR_A_IN2, 0);
-  
-  
-  analogWrite(MOTOR_B_IN1, 0);
-  analogWrite(MOTOR_B_IN2, speed);
+void sagaDon() {
+  analogWrite(MA1, HIZ); analogWrite(MA2, 0);
+  analogWrite(MB1, 0);   analogWrite(MB2, HIZ);
+  delay(SURE_90);
+  dur();
+  delay(200);
 }
 
-void robotTurnLeft90(int speed) {
-  
-  analogWrite(MOTOR_A_IN1, 0);
-  analogWrite(MOTOR_A_IN2, speed);
-  
-  
-  analogWrite(MOTOR_B_IN1, speed);
-  analogWrite(MOTOR_B_IN2, 0);
+void geriDon() {
+  analogWrite(MA1, HIZ); analogWrite(MA2, 0);
+  analogWrite(MB1, 0);   analogWrite(MB2, HIZ);
+  delay(SURE_180);
+  dur();
+  delay(200);
 }
 
-void robotTurnRight180(int speed) {
-  // Motor A - Forward
-  analogWrite(MOTOR_A_IN1, speed);
-  analogWrite(MOTOR_A_IN2, 0);
+void hafifGeri() {
+  analogWrite(MA1, 0); analogWrite(MA2, HIZ);
+  analogWrite(MB1, 0); analogWrite(MB2, HIZ + SAG_MOTOR_OFSET);
+  delay(350);
+  dur();
+}
+
+void dur() {
+  digitalWrite(MA1, LOW); digitalWrite(MA2, LOW);
+  digitalWrite(MB1, LOW); digitalWrite(MB2, LOW);
+}
+
+long mesafeOlc(int trig, int echo) {
+  digitalWrite(trig, LOW); delayMicroseconds(2);
+  digitalWrite(trig, HIGH); delayMicroseconds(10);
+  digitalWrite(trig, LOW);
+  long sure = pulseIn(echo, HIGH, 6000); 
   
-  // Motor B - Backward (same direction as Motor A)
-  analogWrite(MOTOR_B_IN1, speed);
-  analogWrite(MOTOR_B_IN2, 0);
-}
-
-void robotTurnLeft180(int speed) {
-  // Motor A - Backward
-  analogWrite(MOTOR_A_IN1, 0);
-  analogWrite(MOTOR_A_IN2, speed);
-  
-  // Motor B - Forward (opposite of Motor A)
-  analogWrite(MOTOR_B_IN1, 0);
-  analogWrite(MOTOR_B_IN2, speed);
-}
-
-void robotStop() {
-  // Stop Motor A
-  analogWrite(MOTOR_A_IN1, 0);
-  analogWrite(MOTOR_A_IN2, 0);
-  
-  // Stop Motor B
-  analogWrite(MOTOR_B_IN1, 0);
-  analogWrite(MOTOR_B_IN2, 0);
-}
-
-// Forward Backward 1 Meter
-
-void ForwardBackward_1Meter() {
-  // Go forward for METER_TIME
-  Serial.println("  Moving forward 1 meter...");
-  robotForward(240);
-  delay(METER_TIME);
-
-  // Stop for 1 second
-  Serial.println("  Stopping for 1 second...");
-  robotStop();
-  delay(1000);
-
-  // Go backward for METER_TIME
-  Serial.println("  Moving backward 1 meter...");
-  robotBackward(240);
-  delay(METER_TIME);
-
-  // Stop
-  Serial.println("  Stopping.");
-  robotStop();
-  delay(1000);
-}
-
-long readUltrasonicCM() {
-  digitalWrite(ULTRA_TRIG, LOW);
-  delayMicroseconds(2);
-  digitalWrite(ULTRA_TRIG, HIGH);
-  delayMicroseconds(10);
-  digitalWrite(ULTRA_TRIG, LOW);
-
-  long duration = pulseIn(ULTRA_ECHO, HIGH);
-  long distance = duration * 0.0343 / 2; // cm
-  return distance;
+  if (sure == 0) return 999; 
+  return sure * 0.0343 / 2;
 }
