@@ -1,211 +1,220 @@
 #include <Arduino.h>
 
 // ================================================================
-// ==================== KRAL AYARLAR (V11) ========================
+// ==================== SETTINGS & CALIBRATION ====================
 // ================================================================
 
-// 1. HIZ VE MOTOR
-const int HIZ = 160;            // Temel Hız
-const int SAG_MOTOR_OFSET = 15; // Düz giderken sağa çekiyorsa bunu azalt
+// 1. SPEED & MOTOR BALANCE
+const int BASE_SPEED = 160;         // Base speed for the robot
+const int RIGHT_MOTOR_OFFSET = 15;  // Compensation if robot pulls right (reduce if pulling left)
 
-// 2. DÖNÜŞ SÜRELERİ (Senin 300/600 ayarın)
-int SURE_90 = 450;       
-int SURE_180 = 800;      
+// 2. TURN DURATIONS (Your calibrated values)
+int TURN_DURATION_90 = 450;   // Time for 90-degree turn
+int TURN_DURATION_180 = 800;  // Time for 180-degree turn (U-Turn)
 
-// 3. MESAFE SINIRLARI
-const int BOSLUK_SINIRI = 30;   // 30 cm üzeri "Yol Var" demektir
-const int DUVAR_DURMA = 13;     // Ön duvara 13 cm kala dur
+// 3. DISTANCE THRESHOLDS (cm)
+const int GAP_THRESHOLD = 30;   // Distance greater than this implies an open path/corridor
+const int WALL_STOP_DIST = 13;  // Stop if front wall is closer than this
 
-// 4. İLERLEME SÜRELERİ
-const int KAVSAK_ORTALA = 250;  // Dönmeden önce azıcık öne gitme
-const int YENI_YOL_GIRIS = 400; // Döndükten sonra koridora girme süresi
+// 4. MOVEMENT TIMINGS (ms)
+const int JUNCTION_ALIGN_TIME = 250;  // Move forward slightly before turning to align wheels
+const int NEW_PATH_ENTRY_TIME = 400;  // Move forward after turning to enter the new corridor
 
-// ==================== PINLER ====================================
-const int MA1 = 10; const int MA2 = 11; // Sol Motor
-const int MB1 = 3;  const int MB2 = 9;  // Sağ Motor
+// ==================== PIN DEFINITIONS ===========================
+const int MA1 = 10; const int MA2 = 11; // Left Motor Pins
+const int MB1 = 3;  const int MB2 = 9;  // Right Motor Pins
 
-const int T_ON=4, E_ON=12;
-const int T_SAG=5, E_SAG=6;
-const int T_SOL=2, E_SOL=13; 
+const int TRIG_FRONT = 4; const int ECHO_FRONT = 12;
+const int TRIG_RIGHT = 5; const int ECHO_RIGHT = 6;
+const int TRIG_LEFT = 2;  const int ECHO_LEFT = 13; 
 
-long distOn, distSag, distSol;
+long distFront, distRight, distLeft;
 
-// Fonksiyonlar
-void duzGitVeDengele(int sure); // Duvar takipçisi
-void manevra(int solHiz, int sagHiz);
-void solaDon();
-void sagaDon();
-void geriDon();
-void dur();
-void hafifGeri();
-long mesafeOlc(int trig, int echo);
+// ==================== FUNCTION PROTOTYPES =======================
+void driveAndAlign(int duration); // Wall following logic
+void maneuver(int leftSpeed, int rightSpeed);
+void turnLeft();
+void turnRight();
+void turnAround();
+void stopMotors();
+void reverseSlightly();
+long readDistance(int trig, int echo);
 
 void setup() {
   Serial.begin(9600);
   
+  // Motor Pins Setup
   pinMode(MA1, OUTPUT); pinMode(MA2, OUTPUT);
   pinMode(MB1, OUTPUT); pinMode(MB2, OUTPUT);
   
-  pinMode(T_ON, OUTPUT); pinMode(E_ON, INPUT);
-  pinMode(T_SAG, OUTPUT); pinMode(E_SAG, INPUT);
-  pinMode(T_SOL, OUTPUT); pinMode(E_SOL, INPUT);
+  // Sensor Pins Setup
+  pinMode(TRIG_FRONT, OUTPUT); pinMode(ECHO_FRONT, INPUT);
+  pinMode(TRIG_RIGHT, OUTPUT); pinMode(ECHO_RIGHT, INPUT);
+  pinMode(TRIG_LEFT, OUTPUT);  pinMode(ECHO_LEFT, INPUT);
 
-  pinMode(7, INPUT); pinMode(8, INPUT); // Enkoder iptal
+  // Disable Encoder Pins (to avoid conflict)
+  pinMode(7, INPUT); pinMode(8, INPUT); 
 
-  delay(3000); 
+  delay(3000); // 3-second startup delay
 }
 
 void loop() {
-  // 1. DUR VE ANALİZ ET
-  dur();
-  delay(300); // Net okuma için bekle
+  // 1. STOP AND SCAN
+  stopMotors();
+  delay(300); // Wait for sensors to stabilize
   
-  distSol = mesafeOlc(T_SOL, E_SOL);
-  distSag = mesafeOlc(T_SAG, E_SAG);
-  distOn  = mesafeOlc(T_ON, E_ON);
+  distLeft  = readDistance(TRIG_LEFT, ECHO_LEFT);
+  distRight = readDistance(TRIG_RIGHT, ECHO_RIGHT);
+  distFront = readDistance(TRIG_FRONT, ECHO_FRONT);
   
-  Serial.print("L:"); Serial.print(distSol);
-  Serial.print(" F:"); Serial.print(distOn);
-  Serial.print(" R:"); Serial.println(distSag);
+  // Debugging
+  Serial.print("L:"); Serial.print(distLeft);
+  Serial.print(" F:"); Serial.print(distFront);
+  Serial.print(" R:"); Serial.println(distRight);
 
-  // === GÜVENLİK: SIKIŞMA KONTROLÜ ===
-  if (distOn > 0 && distOn < 5) {
-    hafifGeri();
+  // === SAFETY CHECK: ANTI-STUCK ===
+  if (distFront > 0 && distFront < 5) {
+    reverseSlightly();
     return;
   }
 
-  // === MANTIK: BASİT VE NET SOL EL KURALI ===
-  // Karşılaştırma yok. Sırayla kontrol var.
+  // === LOGIC: LEFT HAND RULE ===
+  // Priority: LEFT -> FRONT -> RIGHT -> BACK
 
-  // 1. ÖNCELİK: SOL AÇIK MI? -> DÖN
-  if (distSol > BOSLUK_SINIRI) {
-    Serial.println("KARAR: SOL BOS -> SOLA DON");
+  // 1. PRIORITY: IS LEFT OPEN? -> TURN LEFT
+  if (distLeft > GAP_THRESHOLD) {
+    Serial.println("DECISION: LEFT OPEN -> TURNING LEFT");
     
-    // Kavşağa hizalan
-    duzGitVeDengele(KAVSAK_ORTALA);
-    dur();
+    // Align with junction
+    driveAndAlign(JUNCTION_ALIGN_TIME);
+    stopMotors();
     delay(100);
     
-    solaDon();
+    turnLeft();
     
-    // Yeni yola gir
-    duzGitVeDengele(YENI_YOL_GIRIS);
+    // Enter new path
+    driveAndAlign(NEW_PATH_ENTRY_TIME);
   }
   
-  // 2. ÖNCELİK: ÖNÜM AÇIK MI? -> DÜZ GİT
-  // (Sol doluysa buraya bakar)
-  else if (distOn > DUVAR_DURMA) {
-    Serial.println("KARAR: ON BOS -> DUZ GIT");
-    // Düz git ama kör gitme, duvarları takip et!
-    duzGitVeDengele(400); 
+  // 2. PRIORITY: IS FRONT OPEN? -> GO STRAIGHT
+  // (Only check if Left is blocked)
+  else if (distFront > WALL_STOP_DIST) {
+    Serial.println("DECISION: FRONT OPEN -> GOING STRAIGHT");
+    // Drive straight while correcting position (Wall Following)
+    driveAndAlign(400); 
   }
   
-  // 3. ÖNCELİK: SAĞ AÇIK MI? -> DÖN
-  // (Sol ve Ön doluysa buraya bakar)
-  else if (distSag > BOSLUK_SINIRI) {
-    Serial.println("KARAR: SAG BOS -> SAGA DON");
+  // 3. PRIORITY: IS RIGHT OPEN? -> TURN RIGHT
+  // (Only check if Left and Front are blocked)
+  else if (distRight > GAP_THRESHOLD) {
+    Serial.println("DECISION: RIGHT OPEN -> TURNING RIGHT");
     
-    duzGitVeDengele(KAVSAK_ORTALA);
-    dur();
+    driveAndAlign(JUNCTION_ALIGN_TIME);
+    stopMotors();
     delay(100);
     
-    sagaDon();
+    turnRight();
     
-    duzGitVeDengele(YENI_YOL_GIRIS);
+    driveAndAlign(NEW_PATH_ENTRY_TIME);
   }
   
-  // 4. HİÇBİR YER YOK -> GERİ DÖN
+  // 4. DEAD END -> TURN AROUND
   else {
-    Serial.println("KARAR: CIKMAZ -> GERI");
-    geriDon();
+    Serial.println("DECISION: DEAD END -> U-TURN");
+    turnAround();
   }
 }
 
-// ==================== FONKSİYONLAR ====================
+// ==================== MOVEMENT FUNCTIONS ====================
 
-// Bu fonksiyon robotun koridorun ortasından gitmesini sağlar
-void duzGitVeDengele(int sure) {
-  unsigned long baslangic = millis();
+// This function keeps the robot centered between walls while moving forward
+void driveAndAlign(int duration) {
+  unsigned long startTime = millis();
   
-  while(millis() - baslangic < (unsigned long)sure) {
-    long anlikSol = mesafeOlc(T_SOL, E_SOL);
-    long anlikSag = mesafeOlc(T_SAG, E_SAG);
+  while(millis() - startTime < (unsigned long)duration) {
+    long currentLeft = readDistance(TRIG_LEFT, ECHO_LEFT);
+    long currentRight = readDistance(TRIG_RIGHT, ECHO_RIGHT);
     
-    // GÜVENLİK: Önüme duvar çıktı mı?
-    if (mesafeOlc(T_ON, E_ON) < DUVAR_DURMA) {
-      dur();
+    // Safety: Stop immediately if a wall appears in front
+    if (readDistance(TRIG_FRONT, ECHO_FRONT) < WALL_STOP_DIST) {
+      stopMotors();
       break;
     }
 
-    // --- ORTALAMA MANTIĞI ---
-    // Sola çok yaklaştım (Sol < 8cm) -> SAĞA KIR
-    if (anlikSol < 8 && anlikSol > 0) {
-      manevra(HIZ + 20, HIZ - 10); 
+    // --- WALL FOLLOWING LOGIC ---
+    // If too close to LEFT wall (< 8cm) -> Steer RIGHT
+    if (currentLeft < 8 && currentLeft > 0) {
+      maneuver(BASE_SPEED + 20, BASE_SPEED - 10); 
     }
-    // Sağa çok yaklaştım (Sağ < 8cm) -> SOLA KIR
-    else if (anlikSag < 8 && anlikSag > 0) {
-      manevra(HIZ - 20, HIZ + 30); 
+    // If too close to RIGHT wall (< 8cm) -> Steer LEFT
+    else if (currentRight < 8 && currentRight > 0) {
+      maneuver(BASE_SPEED - 20, BASE_SPEED + 30); 
     }
-    // Ortadaysam -> Düz devam
+    // Otherwise -> Drive Straight with Offset
     else {
-      manevra(HIZ, HIZ + SAG_MOTOR_OFSET);
+      maneuver(BASE_SPEED, BASE_SPEED + RIGHT_MOTOR_OFFSET);
     }
     
-    delay(20); 
+    delay(20); // Small delay for loop stability
   }
-  dur();
+  stopMotors();
 }
 
-void manevra(int solHiz, int sagHiz) {
-  if (solHiz > 255) solHiz = 255; if (solHiz < 0) solHiz = 0;
-  if (sagHiz > 255) sagHiz = 255; if (sagHiz < 0) sagHiz = 0;
+void maneuver(int leftSpeed, int rightSpeed) {
+  // Constrain speeds to 0-255
+  if (leftSpeed > 255) leftSpeed = 255; if (leftSpeed < 0) leftSpeed = 0;
+  if (rightSpeed > 255) rightSpeed = 255; if (rightSpeed < 0) rightSpeed = 0;
   
-  analogWrite(MA1, solHiz); analogWrite(MA2, 0);
-  analogWrite(MB1, sagHiz); analogWrite(MB2, 0);
+  analogWrite(MA1, leftSpeed); analogWrite(MA2, 0);
+  analogWrite(MB1, rightSpeed); analogWrite(MB2, 0);
 }
 
-void solaDon() {
-  analogWrite(MA1, 0);   analogWrite(MA2, HIZ);
-  analogWrite(MB1, HIZ); analogWrite(MB2, 0);
-  delay(SURE_90);
-  dur();
+void turnLeft() {
+  // Tank Turn Left
+  analogWrite(MA1, 0);          analogWrite(MA2, BASE_SPEED);
+  analogWrite(MB1, BASE_SPEED); analogWrite(MB2, 0);
+  delay(TURN_DURATION_90);
+  stopMotors();
   delay(200);
 }
 
-void sagaDon() {
-  analogWrite(MA1, HIZ); analogWrite(MA2, 0);
-  analogWrite(MB1, 0);   analogWrite(MB2, HIZ);
-  delay(SURE_90);
-  dur();
+void turnRight() {
+  // Tank Turn Right
+  analogWrite(MA1, BASE_SPEED); analogWrite(MA2, 0);
+  analogWrite(MB1, 0);          analogWrite(MB2, BASE_SPEED);
+  delay(TURN_DURATION_90);
+  stopMotors();
   delay(200);
 }
 
-void geriDon() {
-  analogWrite(MA1, HIZ); analogWrite(MA2, 0);
-  analogWrite(MB1, 0);   analogWrite(MB2, HIZ);
-  delay(SURE_180);
-  dur();
+void turnAround() {
+  // U-Turn (Right)
+  analogWrite(MA1, BASE_SPEED); analogWrite(MA2, 0);
+  analogWrite(MB1, 0);          analogWrite(MB2, BASE_SPEED);
+  delay(TURN_DURATION_180);
+  stopMotors();
   delay(200);
 }
 
-void hafifGeri() {
-  analogWrite(MA1, 0); analogWrite(MA2, HIZ);
-  analogWrite(MB1, 0); analogWrite(MB2, HIZ + SAG_MOTOR_OFSET);
+void reverseSlightly() {
+  // Back up slightly if stuck
+  analogWrite(MA1, 0); analogWrite(MA2, BASE_SPEED);
+  analogWrite(MB1, 0); analogWrite(MB2, BASE_SPEED + RIGHT_MOTOR_OFFSET);
   delay(350);
-  dur();
+  stopMotors();
 }
 
-void dur() {
+void stopMotors() {
   digitalWrite(MA1, LOW); digitalWrite(MA2, LOW);
   digitalWrite(MB1, LOW); digitalWrite(MB2, LOW);
 }
 
-long mesafeOlc(int trig, int echo) {
+long readDistance(int trig, int echo) {
   digitalWrite(trig, LOW); delayMicroseconds(2);
   digitalWrite(trig, HIGH); delayMicroseconds(10);
   digitalWrite(trig, LOW);
-  long sure = pulseIn(echo, HIGH, 6000); 
+  long duration = pulseIn(echo, HIGH, 6000); // 6ms timeout (approx 1m range)
   
-  if (sure == 0) return 999; 
-  return sure * 0.0343 / 2;
+  if (duration == 0) return 999; // Return 999 if no echo (open space)
+  return duration * 0.0343 / 2;
 }
