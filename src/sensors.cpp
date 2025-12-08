@@ -1,6 +1,7 @@
 #include <Arduino.h>
-#include <movement.h>
-#include <bot_config.h>
+#include "bot_config.h"
+#include "movement.h"
+#include "sensors.h"
 
 long readUltrasonicCM() {
   digitalWrite(ULTRA_TRIG, LOW);
@@ -10,122 +11,81 @@ long readUltrasonicCM() {
   digitalWrite(ULTRA_TRIG, LOW);
 
   long duration = pulseIn(ULTRA_ECHO, HIGH);
-  long distance = duration * 0.0343 / 2; // cm
+  long distance = duration * 0.0343 / 2;
   return distance;
 }
 
-// Move by amount of ticks
-bool prevLeftState = false;
-bool prevRightState = false;
-
-void moveTicks(int ticks, int speed) {
-  // 1. Calculate Target (Absolute value)
-  int targetTicks = abs(ticks);
-
-  // Safety check
-  if (targetTicks < 1) return;
-
-  Serial.print("Moving ");
-  Serial.print(ticks > 0 ? "Forward " : "Backward ");
-  Serial.print("for total ticks: ");
-  Serial.println(targetTicks);
-
-  // 2. Reset Counters
-  int currentTicks = 0;
-
-  // Read initial states (Important to update reference before moving)
-  prevLeftState = (analogRead(SENSOR_PIN_LEFT) > THRESHOLD);
-  prevRightState = (analogRead(SENSOR_PIN_RIGHT) > THRESHOLD);
-
-  // 3. Start Motors based on sign of 'ticks'
-  if (ticks > 0) {
-    // --- FORWARD (Positive Ticks) ---
-    robotForward(speed);
-  } else {
-    // --- BACKWARD (Negative Ticks) ---
-    robotBackward(speed);
-  }
-
-  // 4. Blocking Loop: Count Ticks until Target Reached
-  while (currentTicks < targetTicks) {
-
-    // --- Read Left Sensor ---
-    bool currLeftState = (analogRead(SENSOR_PIN_LEFT) > THRESHOLD);
-    if (currLeftState != prevLeftState) {
-      // Count only on rising edge (to match your turnDegrees logic)
-      if (currLeftState == true) currentTicks++;
-      prevLeftState = currLeftState;
-    }
-
-    // --- Read Right Sensor ---
-    bool currRightState = (analogRead(SENSOR_PIN_RIGHT) > THRESHOLD);
-    if (currRightState != prevRightState) {
-      // Count only on rising edge
-      if (currRightState == true) currentTicks++;
-      prevRightState = currRightState;
-    }
-  }
-
-  // 5. Target Reached -> Stop
-  robotStop();
-  Serial.println("Movement Complete.");
-  delay(500); // Settle time
+// Returns a bitmask of which sensors see the line (7 sensors)
+// Uses analogRead because A6 and A7 are analog-only pins
+int readLineSensors() {
+  int sensorValue = 0;
+  if (analogRead(IR_PIN_7) > THRESHOLD) sensorValue |= (1 << 6); // Leftmost
+  if (analogRead(IR_PIN_6) > THRESHOLD) sensorValue |= (1 << 5);
+  if (analogRead(IR_PIN_5) > THRESHOLD) sensorValue |= (1 << 4);
+  if (analogRead(IR_PIN_4) > THRESHOLD) sensorValue |= (1 << 3); // Center
+  if (analogRead(IR_PIN_3) > THRESHOLD) sensorValue |= (1 << 2);
+  if (analogRead(IR_PIN_2) > THRESHOLD) sensorValue |= (1 << 1);
+  if (analogRead(IR_PIN_1) > THRESHOLD) sensorValue |= (1 << 0); // Rightmost
+  return sensorValue;
 }
 
-// The Function to Turn by Degrees
-void turnDegrees(int degrees, int speed) {
-  // 1. Calculate Target Ticks
-  float targetTicksFloat = abs(degrees) * TICKS_PER_DEGREE;
-  int targetTicks = round(targetTicksFloat);
-  
-  // Safety check for low resolution encoders
-  if (targetTicks < 1) targetTicks = 1;
+void moveTicks(int targetTicks, int speed) {
+  int leftTicks = 0;
+  int rightTicks = 0;
+  bool prevLeftState, prevRightState;
+  bool currLeftState, currRightState;
 
-  Serial.print("Turning ");
-  Serial.print(degrees);
-  Serial.print(" deg. Target Ticks: ");
-  Serial.println(targetTicks);
+  prevLeftState = (analogRead(SENSOR_PIN_LEFT) > ENCODER_THRESHOLD);
+  prevRightState = (analogRead(SENSOR_PIN_RIGHT) > ENCODER_THRESHOLD);
 
-  // 2. Reset Counters
-  int currentTicks = 0;
-  
-  // Read initial states
-  prevLeftState = (analogRead(SENSOR_PIN_LEFT) > THRESHOLD);
-  prevRightState = (analogRead(SENSOR_PIN_RIGHT) > THRESHOLD);
+  robotForward(speed);
 
-  // 3. Start Motors based on direction
-  if (degrees > 0) {
-    // --- RIGHT TURN (+90) ---
-    // Robot spins Clockwise
-    robotTurnRight(speed);
-    
-  } else {
-    // --- LEFT TURN (-90) ---
-    // Robot spins Counter-Clockwise
-    robotTurnLeft(speed);
+  while (leftTicks < targetTicks || rightTicks < targetTicks) {
+    currLeftState = (analogRead(SENSOR_PIN_LEFT) > ENCODER_THRESHOLD);
+    currRightState = (analogRead(SENSOR_PIN_RIGHT) > ENCODER_THRESHOLD);
 
-  }
-
-  // 4. Blocking Loop: Count Ticks until Target Reached
-  while (currentTicks < targetTicks) {
-    
-    // --- Read Left Sensor ---
-    bool currLeftState = (analogRead(SENSOR_PIN_LEFT) > THRESHOLD);
     if (currLeftState != prevLeftState) {
-      if (currLeftState == true) currentTicks++; 
+      leftTicks++;
       prevLeftState = currLeftState;
     }
-
-    // --- Read Right Sensor ---
-    bool currRightState = (analogRead(SENSOR_PIN_RIGHT) > THRESHOLD);
     if (currRightState != prevRightState) {
-      if (currRightState == true) currentTicks++; 
+      rightTicks++;
       prevRightState = currRightState;
     }
   }
 
-  // 5. Target Reached -> Stop
   robotStop();
-  Serial.println("Turn Complete.");
-  delay(500); // Settle time
+}
+
+void turnDegrees(int degrees, int speed) {
+  int targetTicks = abs(degrees) * TICKS_PER_DEGREE;
+  int leftTicks = 0;
+  int rightTicks = 0;
+  bool prevLeftState, prevRightState;
+  bool currLeftState, currRightState;
+
+  prevLeftState = (analogRead(SENSOR_PIN_LEFT) > ENCODER_THRESHOLD);
+  prevRightState = (analogRead(SENSOR_PIN_RIGHT) > ENCODER_THRESHOLD);
+
+  if (degrees > 0) {
+    robotTurnRight(speed);
+  } else {
+    robotTurnLeft(speed);
+  }
+
+  while (leftTicks < targetTicks || rightTicks < targetTicks) {
+    currLeftState = (analogRead(SENSOR_PIN_LEFT) > ENCODER_THRESHOLD);
+    currRightState = (analogRead(SENSOR_PIN_RIGHT) > ENCODER_THRESHOLD);
+
+    if (currLeftState != prevLeftState) {
+      leftTicks++;
+      prevLeftState = currLeftState;
+    }
+    if (currRightState != prevRightState) {
+      rightTicks++;
+      prevRightState = currRightState;
+    }
+  }
+
+  robotStop();
 }

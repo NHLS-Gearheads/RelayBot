@@ -1,12 +1,24 @@
 #include <Arduino.h>
-#include <bot_config.h>
-#include <movement.h>
-#include <sensors.h>
+#include "bot_config.h"
+#include "movement.h"
+#include "sensors.h"
+
+// ===== Global variables ====== 
+int lastDirection = 0;
+
+// ===== LINE FOLLOWER CONSTANTS =====
+const int BASE_SPEED = 180;  
+const int MAX_SPEED = 255;
+const float Kp = 0.15;       
+
+// ===== FUNCTION DECLARATIONS =====
+void lineSensor();
 
 void setup() {
-  // Initialize Serial for debugging
   Serial.begin(9600);
-  
+  Serial.println("Robot Line Follower");
+  Serial.println("====================");
+
   // Configure Motor A pins
   pinMode(MOTOR_A_IN1, OUTPUT);
   pinMode(MOTOR_A_IN2, OUTPUT);
@@ -15,67 +27,58 @@ void setup() {
   pinMode(MOTOR_B_IN3, OUTPUT);
   pinMode(MOTOR_B_IN4, OUTPUT);
 
+  // Configure Sonar pins
   pinMode(ULTRA_TRIG, OUTPUT);
   pinMode(ULTRA_ECHO, INPUT);
+
+  // Configure Line sensor IR enable pin
+  pinMode(IR_ENABLE_PIN, OUTPUT);
+  digitalWrite(IR_ENABLE_PIN, HIGH); // Enable the IR sensor array
 
   // Start with robot stopped
   robotStop();
   
   Serial.println("Setup complete. Starting test in 3 seconds...");
-  delay(1000);
+  delay(3000);
 }
 
 void loop() {
-  
-  // Hardcoded Object Detection, must be removed
-  // long dist = readUltrasonicCM();
-  // if (dist > 0 && dist < 15) {        
-  //     // --- TUNING VARIABLES ---
-  //     int DODGE_TIME = TURN_90_TIME * 1.4; // Time to turn OUT
-      
-  //     robotStop();
-  //     delay(200);
-      
-  //     // 1. Back up 
-  //     robotBackward(180);
-  //     delay(600);     
-  //     robotStop();
-  //     delay(100);
+  lineSensor();
+}
 
-  //     // --- PHASE 1: DODGE OUT ---
-  //     // Arc Left (Angling away)
-  //     robotTurnLeftCurb(180); 
-  //     delay(DODGE_TIME); 
+// ===== LINE FOLLOWER LOGIC =====
+void lineSensor() {
+  int s1 = analogRead(IR_PIN_1); // D1 - Far Right
+  int s2 = analogRead(IR_PIN_2); // D2
+  int s3 = analogRead(IR_PIN_3); // D3
+  int s4 = analogRead(IR_PIN_4); // D4 - Center
+  int s5 = analogRead(IR_PIN_5); // D5
+  int s6 = analogRead(IR_PIN_6); // D6
+  int s7 = analogRead(IR_PIN_7); // D7 - Far Left
 
-  //     robotForward(180);
-  //     delay(1000); 
+  Serial.println(String(s1) + "," + s2 + "," + s3 + "," + s4 + "," + s5 + "," + s6 + "," + s7);
 
-  //     robotTurnRightCurb(180);
-  //     delay(DODGE_TIME);
+  // Lost line detection
+  if (s1 < THRESHOLD && s2 < THRESHOLD && s3 < THRESHOLD && s4 < THRESHOLD && 
+      s5 < THRESHOLD && s6 < THRESHOLD && s7 < THRESHOLD) {
+      if (lastDirection == 1) robotTurnRight(130); 
+      else if (lastDirection == 2) robotTurnLeft(130);  
+      return;
+  }
 
-  //     robotTurnRightCurb(180);
-  //     delay(DODGE_TIME);
+  // Calculate error using weighted positions (7 sensors)
+  // Weights: s7(+3), s6(+2), s5(+1) for left | s4(0) center | s3(-1), s2(-2), s1(-3) for right
+  long error = (s7 * 3 + s6 * 2 + s5 * 1) - (s3 * 1 + s2 * 2 + s1 * 3);
+  int turnAdjustment = error * Kp;
 
-  //     robotForward(180);
-  //     delay(1500); 
+  int leftSpeed = constrain(BASE_SPEED - turnAdjustment, 0, MAX_SPEED);
+  int rightSpeed = constrain(BASE_SPEED + turnAdjustment, 0, MAX_SPEED);
 
-  //     robotTurnLeftCurb(180);
-  //     delay(850);
+  analogWrite(MOTOR_A_IN1, rightSpeed);
+  analogWrite(MOTOR_A_IN2, 0);
+  analogWrite(MOTOR_B_IN3, leftSpeed);
+  analogWrite(MOTOR_B_IN4, 0);
 
-  //     robotStop();
-
-  // } else {
-  //   // Path is clear, keep moving
-  //   robotForward(180);
-  // }
-
-  // Testing code for movement
-  moveTicks(130, 255);
-  moveTicks(-130, 255);
-  
-  turnDegrees(90, 255);
-  turnDegrees(-90, 255);
-  turnDegrees(20, 255);
-  turnDegrees(-20, 255);
-
+  if (turnAdjustment < -50) lastDirection = 1;
+  else if (turnAdjustment > 50) lastDirection = 2;
 }
