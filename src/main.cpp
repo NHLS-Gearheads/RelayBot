@@ -42,6 +42,7 @@ void robotTurnLeft180(int speed);
 void robotTurnRight90(int speed);
 void robotTurnLeft90(int speed);
 long readUltrasonicCM(); 
+void lineSensor();
 
 void setup() {
   // Initialize Serial for debugging
