@@ -1,7 +1,12 @@
 #include <Arduino.h>
 
+
 // ===== Global variables ====== 
   int lastDirection = 0;
+  int blocksSeen = 0;
+  unsigned long startTime = 0;
+  bool startTimeSet = false;
+  bool leftTurn = false;
 
 // ===== PIN CONFIGURATION =====
 const int MOTOR_A_IN1 = 11;  // Direction control 1 (PWM)
@@ -24,15 +29,20 @@ const int SENS_LINE6 = A5;
 const int SENS_LINE7 = A6;
 const int SENS_LINE8 = A7;
 
+
+// Gripper pin
+const int GRIPPER = 13;
+
 // ===== TIMING CONFIGURATION =====
 // You'll need to calibrate this value for your specific robot
 // Start with this and adjust based on testing
 const int TURN_180_TIME = 950;  // Time in milliseconds to turn 180 degrees
 const int METER_TIME = 2500;    // Time in milliseconds to drive 1 meter forwards or backwards
 const int TURN_90_RIGHT = 3700; // Time in milliseconds to turn right 
-const int TURN_90_LEFT = 3255;  // Time in milliseconds to turn left
+const int TURN_90_LEFT = 350;  // Time in milliseconds to turn left
 
 // ===== FUNCTION DECLARATIONS =====
+void lineSensor();
 void ForwardBackward_1Meter();
 void robotForward(int speed);
 void robotBackward(int speed);
@@ -42,13 +52,10 @@ void robotTurnLeft180(int speed);
 void robotTurnRight90(int speed);
 void robotTurnLeft90(int speed);
 long readUltrasonicCM(); 
-void lineSensor();
 
 void setup() {
   // Initialize Serial for debugging
   Serial.begin(9600);
-  Serial.println("Robot 180 Degree Spin Test");
-  Serial.println("==========================");
   
   // Configure Motor A pins
   pinMode(MOTOR_A_IN1, OUTPUT);
@@ -67,8 +74,15 @@ void setup() {
     pinMode(i, INPUT);
   }
 
+  // Configure gripper pin
+  pinMode(GRIPPER, OUTPUT);
   // Start with robot stopped
   robotStop();
+  
+  // robotForward(255);
+  // digitalWrite(GRIPPER, HIGH);
+  // delayMicroseconds(1025);
+  // digitalWrite(GRIPPER, LOW);
   
   Serial.println("Setup complete. Starting test in 3 seconds...");
   delay(3000);
@@ -76,6 +90,7 @@ void setup() {
 
 void loop() {
   lineSensor();
+  readUltrasonicCM();
 }
 
 
@@ -192,30 +207,6 @@ void robotStop() {
   analogWrite(MOTOR_B_IN2, 0);
 }
 
-// Forward Backward 1 Meter
-
-void ForwardBackward_1Meter() {
-  // Go forward for METER_TIME
-  Serial.println("  Moving forward 1 meter...");
-  robotForward(240);
-  delay(METER_TIME);
-
-  // Stop for 1 second
-  Serial.println("  Stopping for 1 second...");
-  robotStop();
-  delay(1000);
-
-  // Go backward for METER_TIME
-  Serial.println("  Moving backward 1 meter...");
-  robotBackward(240);
-  delay(METER_TIME);
-
-  // Stop
-  Serial.println("  Stopping.");
-  robotStop();
-  delay(1000);
-}
-
 long readUltrasonicCM() {
   digitalWrite(ULTRA_TRIG, LOW);
   delayMicroseconds(2);
@@ -225,6 +216,16 @@ long readUltrasonicCM() {
 
   long duration = pulseIn(ULTRA_ECHO, HIGH);
   long distance = duration * 0.0343 / 2; // cm
+  if(distance < 30) {
+      	Serial.println("sensing object!!!!");
+        robotTurnRightHeavy(255);
+        delay(1000);
+        robotTurnLeftHeavy(255);
+        delay(2000);
+        robotTurnRightHeavy(255);
+        delay(1000);
+        return distance;
+  }
   return distance;
 }
 
@@ -238,33 +239,84 @@ void lineSensor(){
   int s6 = analogRead(SENS_LINE6);
   int s7 = analogRead(SENS_LINE7);
   int s8 = analogRead(SENS_LINE8);
-
   Serial.println(String(s1) + "," + s2 + "," + s3 + "," + s4 + "," + s5 + "," + s6 + "," + s7 + "," + s8);
 
-  if(s1 > 950) {
+  bool allBlack =
+  s1 > 750 && s2 > 750 && s3 > 750 && s4 > 750 &&
+  s5 > 750 && s6 > 750 && s7 > 750 && s8 > 750;
+
+if (allBlack) {
+
+  if (!startTimeSet) {
+    startTime = millis();
+    startTimeSet = true;
+  }
+
+  robotForward(255);
+
+  if (millis() - startTime >= 250) {
+    blocksSeen++;
+    startTime += 250;
+    Serial.println("block detected!");
+  }
+
+} else {
+  // ONLY reset when leaving the black block
+  startTimeSet = false;
+}
+  
+  if(blocksSeen == 1) {
+    digitalWrite(GRIPPER, HIGH);
+    delayMicroseconds(1000);
+    digitalWrite(GRIPPER, LOW);
+    if (!leftTurn) {
+    robotStop();
+    delay(500);
+    robotTurnLeftFULL(255);
+    delay(TURN_90_LEFT);
+    robotStop();
+    leftTurn = true;
+    }
+  }
+  else if(blocksSeen > 1 || blocksSeen == 0 && allBlack) {
+    digitalWrite(GRIPPER, HIGH);
+    delayMicroseconds(1600);
+    digitalWrite(GRIPPER, LOW);
+    blocksSeen = 0;
+  }
+
+  if(s1 > 750) {
       robotTurnRightHeavy(255);
       lastDirection = 1;
-  } else if(s2 > 950) {
+      readUltrasonicCM();
+  } else if(s2 > 750) {
       robotTurnRightMedium(255);
       lastDirection = 1;
-  } else if(s3 > 950) {
+      readUltrasonicCM();
+  } else if(s3 > 750) {
       robotTurnRightLight(255);
       lastDirection = 1;
-  }  else if(s6 > 950) {
+      readUltrasonicCM();
+  }  else if(s6 > 750) {
       robotTurnLeftLight(255);
       lastDirection = 2;
-  } else if(s7 > 950) {
+      readUltrasonicCM();
+  } else if(s7 > 750) {
       robotTurnLeftMedium(255);
       lastDirection = 2;
-  } else if(s8 > 950) {
+      readUltrasonicCM();
+  } else if(s8 > 750) {
       robotTurnLeftHeavy(255);
       lastDirection = 2;
-  } else if(s4 > 950) {
+      readUltrasonicCM();
+  } else if(s4 > 750) {
       robotForward(255);
       lastDirection = 0;
-  } else if(s5 > 950) {
+      readUltrasonicCM();
+  } else if(s5 > 750) {
       robotForward(255);
       lastDirection = 0;
+      readUltrasonicCM();
   } else {
       if(lastDirection == 1) {
         robotTurnRightFULL(255);
