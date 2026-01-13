@@ -1,81 +1,223 @@
 #include <Arduino.h>
-#include <bot_config.h>
-#include <movement.h>
-#include <sensors.h>
+#include "Config.h"
+#include "NeoPixels.h"
+#include "LightSensors.h"
+#include "UltrasonicSensor.h"
+#include "MotorControl.h"
+#include "GripperControl.h"
+#include "LinePosition.h"
+#include "WirelessComm.h"
 
 void setup() {
-  // Initialize Serial for debugging
   Serial.begin(9600);
   
-  // Configure Motor A pins
-  pinMode(MOTOR_A_IN1, OUTPUT);
-  pinMode(MOTOR_A_IN2, OUTPUT);
+  setupNeoPixels();
+  setupUltrasonicSensor();
+  setupMotors();
+  setupGripper();
+  setupWireless();
   
-  // Configure Motor B pins
-  pinMode(MOTOR_B_IN3, OUTPUT);
-  pinMode(MOTOR_B_IN4, OUTPUT);
+  // Attach Interrupts for Encoders
+  attachInterrupt(digitalPinToInterrupt(MOTOR_R1), leftEncoderISR, CHANGE);
+  attachInterrupt(digitalPinToInterrupt(MOTOR_R2), rightEncoderISR, CHANGE);
 
-  pinMode(ULTRA_TRIG, OUTPUT);
-  pinMode(ULTRA_ECHO, INPUT);
-
-  // Start with robot stopped
-  robotStop();
+  Serial.println("R2 Robot Online");
+  sendMessage("Robot Online");
   
-  Serial.println("Setup complete. Starting test in 3 seconds...");
-  delay(1000);
+  // Hardcoded 3 second delay before starting (no server required)
+  sendMessage("Starting in 3 seconds...");
+  delay(3000);
+  sendMessage("Race Started!");
+  otherRobotDetected = true;
 }
 
 void loop() {
+  // Handle wireless communication
+  receiveCommands();
+  transmitStats();
+
+  int unsigned currentTime = millis();
+  if(conePickedUp) {
+    if (currentTime - previousTime >= gripperInterval) {
+      previousTime = currentTime;
+      gripper(GRIPPER_CLOSE);
+    }
+  } else {
+    if (currentTime - previousTime >= gripperInterval) {
+      previousTime = currentTime;
+      gripper(GRIPPER_OPEN);
+    }
+  }
   
-  // Hardcoded Object Detection, must be removed
-  // long dist = readUltrasonicCM();
-  // if (dist > 0 && dist < 15) {        
-  //     // --- TUNING VARIABLES ---
-  //     int DODGE_TIME = TURN_90_TIME * 1.4; // Time to turn OUT
-      
-  //     robotStop();
-  //     delay(200);
-      
-  //     // 1. Back up 
-  //     robotBackward(180);
-  //     delay(600);     
-  //     robotStop();
-  //     delay(100);
-
-  //     // --- PHASE 1: DODGE OUT ---
-  //     // Arc Left (Angling away)
-  //     robotTurnLeftCurb(180); 
-  //     delay(DODGE_TIME); 
-
-  //     robotForward(180);
-  //     delay(1000); 
-
-  //     robotTurnRightCurb(180);
-  //     delay(DODGE_TIME);
-
-  //     robotTurnRightCurb(180);
-  //     delay(DODGE_TIME);
-
-  //     robotForward(180);
-  //     delay(1500); 
-
-  //     robotTurnLeftCurb(180);
-  //     delay(850);
-
-  //     robotStop();
-
-  // } else {
-  //   // Path is clear, keep moving
-  //   robotForward(180);
-  // }
-
-  // Testing code for movement
-  moveTicks(130, 255);
-  moveTicks(-130, 255);
+  updateNeoPixels();
   
-  turnDegrees(90, 255);
-  turnDegrees(-90, 255);
-  turnDegrees(20, 255);
-  turnDegrees(-20, 255);
+  if(coneInSquare && !sensorsCalibrated){
+    calibrateSensors();
+  }
 
-}
+  if (sensorsCalibrated && !conePickedUp) {
+    conePickedUp = true;
+    return;
+  }
+
+  if (sensorsCalibrated && !gameStarted && conePickedUp) {
+    turnLeftMillis(90);
+    if(robotState != FOLLOW_LINE) return;
+    gameStarted = true;
+  }
+
+  if (gameStarted && !gameEnded) {
+    // Handle active turns to prevent re-entering line logic
+    if (robotState == TURNING_LEFT) {
+      turnLeftMillis(90);
+      updateNeoPixels();
+      return;
+    }
+    if (robotState == TURNING_AROUND) {
+      turnAroundMillis();
+      updateNeoPixels();
+      return;
+    }
+    
+    // Status Report: Motor Speed
+    static unsigned long lastSpeedReport = 0;
+    if (millis() - lastSpeedReport > 1000) {
+       Serial.print("R2 Motor Speed: ");
+       Serial.println(baseSpeed); 
+       lastSpeedReport = millis();
+    }
+
+    getLinePosition();
+    
+    float dist = getDistance();
+    
+    if (dist != -1) {  
+      if (dist < OBSTACLE_THRESHOLD) {
+        sendMessage("OBSTACLE DETECTED!");
+        Serial.print("R2 Distance: ");
+        Serial.println(dist);
+        
+        stopMotors();
+        delay(100);
+        resetTicks();
+        
+        // Calculate ticks for 180 degree tank turn
+        // Arc length = (Pi * Diameter) / 2
+        float turnDist = (3.14 * DISTANCE_BETWEEN_WHEELS) / 2.0;
+        int targetTicks = (turnDist / WHEEL_CIRCUMFERENCE) * PULSE_PER_REVOLUTION;
+        
+        // Start tank turn (spin in place)
+        analogWrite(PIN_LEFT_FWD, 220);     // Left Forward
+        digitalWrite(PIN_LEFT_BWD, LOW);
+        
+        digitalWrite(PIN_RIGHT_FWD, LOW);
+        analogWrite(PIN_RIGHT_BWD, 220);    // Right Backward
+        
+        // Block until turn is complete using encoder ticks
+        while(abs(_leftTicks) < targetTicks) {
+          // Wait for turn to complete
+        }
+        
+        stopMotors();
+        robotState = FOLLOW_LINE;
+        linePosition = CENTER_LINE; 
+        return;
+      }
+    }
+    
+    switch (linePosition) {
+      case T_JUNCTION:
+        // Drive forward 1/3 of a wheel rotation to check if it's the finish line
+        resetTicks();
+        {
+          int checkTicks = PULSE_PER_REVOLUTION / 3;
+          moveForward(150, 150);
+          while(_leftTicks < checkTicks && _rightTicks < checkTicks) {
+            // Wait for movement
+          }
+        }
+        stopMotors();
+        
+        readSensors();
+        
+        {
+          bool allBlack = true;
+          for (int i = 0; i < NUM_SENSORS; i++) {
+            if (sensorValues[i] < sensorThreshold[i]) {
+              allBlack = false;
+              break;
+            }
+          }
+          
+          if (allBlack) {
+            // Still all black -> Finish Line
+            sendMessage("Dropping Cone");
+            coneDroppedOff = true;
+            gripper(GRIPPER_OPEN);
+            delay(500);
+            
+            // Reverse 45cm
+            resetTicks();
+            int targetTicks = 45; // Approx 45cm
+            
+            // Set motors to reverse (increased power)
+            analogWrite(PIN_LEFT_BWD, 200);
+            digitalWrite(PIN_LEFT_FWD, LOW);
+            analogWrite(PIN_RIGHT_BWD, 200);
+            digitalWrite(PIN_RIGHT_FWD, LOW);
+            
+            while(abs(_leftTicks) < targetTicks && abs(_rightTicks) < targetTicks) {
+              delay(10);
+            }
+            
+            stopMotors();
+            sendMessage("Race Finished!");
+            gameEnded = true;
+          } else {
+            // Not all black -> Just a crossing
+            sendMessage("Turning Left at Junction");
+            turnLeftMillis(120);
+          }
+        }
+        break;
+        
+      case LEFT_LINE:
+        sendMessage("Turning Left");
+        turnLeftMillis(140);
+        readSensors();
+        {
+          bool lineDetected = false;
+          for (int i = 0; i < NUM_SENSORS; i++) {
+            if (sensorValues[i] > sensorThreshold[i]) {
+              lineDetected = true;
+              break;
+            }
+          }
+          
+          if (!lineDetected) {
+            updateNeoPixels();
+            return;
+          }
+        }
+        break;
+        
+      case NO_LINE:
+        sendMessage("Line Lost - Searching...");
+        turnAroundMillis();
+        break;
+        
+      case RIGHT_LINE:
+        linePosition = CENTER_LINE;
+        robotState = FOLLOW_LINE;
+        moveForwardPID(baseSpeed, baseSpeed, false, true);
+        break;
+        
+      case CENTER_LINE:
+      default:
+        moveForwardPID(baseSpeed, baseSpeed, false, true);
+        break;
+    }
+  }
+
+  updateNeoPixels();
+} 

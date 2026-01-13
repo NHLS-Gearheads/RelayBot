@@ -1,0 +1,928 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Line Follower Debug - WebUSB</title>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body { 
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: #1a1a2e; 
+            color: #eee; 
+            padding: 20px;
+        }
+        .container { max-width: 1000px; margin: 0 auto; }
+        h1 { text-align: center; margin-bottom: 20px; color: #00d4ff; }
+        
+        .status {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            background: #16213e;
+            padding: 10px 20px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+        }
+        .connected { color: #00ff88; }
+        .disconnected { color: #ff4444; }
+        
+        .connect-btn {
+            padding: 10px 20px;
+            background: #00d4ff;
+            color: #000;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-weight: bold;
+            font-size: 14px;
+        }
+        .connect-btn:hover { background: #00a0cc; }
+        .connect-btn.disconnect { background: #ff6b6b; }
+        .connect-btn.disconnect:hover { background: #cc5555; }
+        
+        .panel {
+            background: #16213e;
+            border-radius: 8px;
+            padding: 20px;
+            margin-bottom: 20px;
+        }
+        .panel h2 { 
+            color: #00d4ff; 
+            margin-bottom: 15px;
+            font-size: 1.2em;
+        }
+        
+        /* Calibration panel */
+        .calib-status {
+            display: inline-block;
+            padding: 5px 15px;
+            border-radius: 20px;
+            font-weight: bold;
+            margin-left: 10px;
+        }
+        .calib-status.active { background: #ff6b6b; color: #000; animation: pulse 1s infinite; }
+        .calib-status.inactive { background: #333; color: #888; }
+        @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }
+        
+        .calib-grid {
+            display: grid;
+            grid-template-columns: repeat(8, 1fr);
+            gap: 10px;
+            margin: 20px 0;
+        }
+        .calib-sensor {
+            background: #0f0f23;
+            border-radius: 8px;
+            padding: 10px;
+            text-align: center;
+        }
+        .calib-sensor .label { color: #00d4ff; font-weight: bold; margin-bottom: 10px; }
+        .calib-bar-container {
+            height: 150px;
+            background: #222;
+            border-radius: 4px;
+            position: relative;
+            margin: 10px 0;
+        }
+        .calib-bar-current {
+            position: absolute;
+            left: 10%;
+            right: 10%;
+            height: 4px;
+            background: #fff;
+            border-radius: 2px;
+            transition: bottom 0.1s;
+        }
+        .calib-bar-min {
+            position: absolute;
+            left: 0;
+            right: 0;
+            height: 2px;
+            background: #00ff88;
+        }
+        .calib-bar-max {
+            position: absolute;
+            left: 0;
+            right: 0;
+            height: 2px;
+            background: #ff6b6b;
+        }
+        .calib-bar-range {
+            position: absolute;
+            left: 20%;
+            right: 20%;
+            background: rgba(0, 212, 255, 0.3);
+        }
+        .calib-values {
+            font-size: 11px;
+            color: #888;
+        }
+        .calib-values .current { color: #fff; font-size: 14px; font-weight: bold; }
+        .calib-values .min { color: #00ff88; }
+        .calib-values .max { color: #ff6b6b; }
+        
+        .calib-buttons {
+            display: flex;
+            gap: 10px;
+            margin-top: 15px;
+        }
+        .calib-btn {
+            padding: 12px 24px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-weight: bold;
+            font-size: 14px;
+        }
+        .calib-btn.start { background: #00ff88; color: #000; }
+        .calib-btn.stop { background: #ff6b6b; color: #000; }
+        .calib-btn.reset { background: #666; color: #fff; }
+        .calib-btn.apply { background: #00d4ff; color: #000; }
+        .calib-btn:hover { opacity: 0.8; }
+        
+        .code-output {
+            background: #0f0f23;
+            padding: 15px;
+            border-radius: 4px;
+            font-family: monospace;
+            font-size: 12px;
+            white-space: pre-wrap;
+            margin-top: 15px;
+            display: none;
+        }
+        
+        /* Sensor bar visualization */
+        .sensor-bar {
+            display: flex;
+            justify-content: space-between;
+            height: 100px;
+            background: #0f0f23;
+            border-radius: 8px;
+            padding: 10px;
+            margin-bottom: 10px;
+        }
+        .sensor {
+            flex: 1;
+            margin: 0 2px;
+            background: linear-gradient(to top, #333, #333);
+            border-radius: 4px;
+            position: relative;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+        .sensor-fill {
+            position: absolute;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            background: linear-gradient(to top, #00ff88, #00d4ff);
+            border-radius: 4px;
+            transition: height 0.1s;
+        }
+        .sensor-label {
+            position: absolute;
+            bottom: -25px;
+            font-size: 12px;
+            color: #888;
+        }
+        .sensor-value {
+            position: absolute;
+            top: 5px;
+            font-size: 10px;
+            color: #fff;
+            z-index: 1;
+        }
+        
+        /* Position indicator */
+        .position-track {
+            height: 40px;
+            background: #0f0f23;
+            border-radius: 20px;
+            position: relative;
+            margin: 30px 0;
+        }
+        .position-marker {
+            position: absolute;
+            width: 20px;
+            height: 40px;
+            background: #ff6b6b;
+            border-radius: 10px;
+            top: 0;
+            transform: translateX(-50%);
+            transition: left 0.1s;
+        }
+        .position-center {
+            position: absolute;
+            left: 50%;
+            top: 0;
+            bottom: 0;
+            width: 2px;
+            background: #444;
+        }
+        
+        /* Motor speeds */
+        .motors {
+            display: flex;
+            justify-content: space-around;
+            margin: 20px 0;
+        }
+        .motor {
+            text-align: center;
+            width: 120px;
+        }
+        .motor-bar {
+            height: 150px;
+            width: 40px;
+            background: #0f0f23;
+            border-radius: 4px;
+            margin: 10px auto;
+            position: relative;
+            overflow: hidden;
+        }
+        .motor-fill {
+            position: absolute;
+            left: 0;
+            right: 0;
+            background: #00d4ff;
+            transition: all 0.1s;
+        }
+        .motor-fill.reverse { background: #ff6b6b; }
+        .motor-value { font-size: 24px; font-weight: bold; }
+        
+        /* Mode indicator */
+        .mode {
+            text-align: center;
+            font-size: 28px;
+            font-weight: bold;
+            padding: 15px;
+            border-radius: 8px;
+            margin-bottom: 15px;
+        }
+        .mode.NORMAL { background: #1a4d1a; color: #00ff88; }
+        .mode.SHARP { background: #4d4d1a; color: #ffff00; }
+        .mode.LOST { background: #4d1a1a; color: #ff4444; }
+        
+        /* Commands */
+        .commands {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+        }
+        .cmd-btn {
+            padding: 10px 20px;
+            background: #00d4ff;
+            color: #000;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-weight: bold;
+        }
+        .cmd-btn:hover { background: #00a0cc; }
+        .cmd-btn:disabled { background: #555; color: #888; cursor: not-allowed; }
+        
+        /* Raw output */
+        .raw-output {
+            font-family: monospace;
+            background: #0f0f23;
+            padding: 10px;
+            border-radius: 4px;
+            font-size: 12px;
+            color: #888;
+            word-break: break-all;
+            max-height: 200px;
+            overflow-y: auto;
+        }
+        
+        /* Stats grid */
+        .stats {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 10px;
+            text-align: center;
+        }
+        .stat {
+            background: #0f0f23;
+            padding: 15px;
+            border-radius: 8px;
+        }
+        .stat-value { font-size: 24px; font-weight: bold; color: #00d4ff; }
+        .stat-label { font-size: 12px; color: #888; margin-top: 5px; }
+        
+        .instructions {
+            background: #0f0f23;
+            padding: 15px;
+            border-radius: 8px;
+            margin-bottom: 15px;
+            font-size: 14px;
+            line-height: 1.6;
+        }
+        .instructions ol { margin-left: 20px; }
+        .instructions li { margin: 5px 0; }
+        
+        .webusb-notice {
+            background: #4d4d1a;
+            color: #ffff00;
+            padding: 15px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            text-align: center;
+            display: none;
+        }
+        
+        .serial-log {
+            max-height: 300px;
+            overflow-y: auto;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🤖 Line Follower Debug (WebSerial)</h1>
+        
+        <div class="webusb-notice" id="webusb-notice">
+            ⚠️ Web Serial API is not supported in this browser. Please use Chrome, Edge, or Opera.
+        </div>
+        
+        <div class="status">
+            <span id="connection" class="disconnected">● Disconnected</span>
+            <span id="port"></span>
+            <button class="connect-btn" id="connect-btn" onclick="toggleConnection()">Connect</button>
+        </div>
+        
+        <!-- CALIBRATION PANEL -->
+        <div class="panel">
+            <h2>🎯 Visual Calibration 
+                <span id="calib-status" class="calib-status inactive">INACTIVE</span>
+            </h2>
+            
+            <div class="instructions">
+                <strong>How to calibrate:</strong>
+                <ol>
+                    <li>Click <strong>Connect</strong> to connect to the robot via WebSerial</li>
+                    <li>Click <strong>Start Calibration</strong></li>
+                    <li>Move robot so each sensor sees the <strong>white floor</strong> (captures MIN)</li>
+                    <li>Move robot so each sensor sees the <strong>black line</strong> (captures MAX)</li>
+                    <li>Watch the bars fill up - green line = min, red line = max</li>
+                    <li>Click <strong>Stop & Generate Code</strong> when all sensors have good range</li>
+                    <li>Copy the generated code to <code>line_follower.cpp</code></li>
+                </ol>
+            </div>
+            
+            <div class="calib-grid" id="calib-grid">
+                <!-- Generated by JS -->
+            </div>
+            
+            <div class="calib-buttons">
+                <button class="calib-btn start" onclick="startCalib()">▶ Start Calibration</button>
+                <button class="calib-btn stop" onclick="stopCalib()">⏹ Stop & Generate Code</button>
+                <button class="calib-btn reset" onclick="resetCalib()">↻ Reset</button>
+            </div>
+            
+            <div class="code-output" id="code-output"></div>
+        </div>
+        
+        <div class="panel">
+            <div id="mode" class="mode NORMAL">NORMAL</div>
+            
+            <div class="stats">
+                <div class="stat">
+                    <div class="stat-value" id="position">3500</div>
+                    <div class="stat-label">Position</div>
+                </div>
+                <div class="stat">
+                    <div class="stat-value" id="error">0</div>
+                    <div class="stat-label">Error</div>
+                </div>
+                <div class="stat">
+                    <div class="stat-value" id="left_speed">0</div>
+                    <div class="stat-label">Left Motor</div>
+                </div>
+                <div class="stat">
+                    <div class="stat-value" id="right_speed">0</div>
+                    <div class="stat-label">Right Motor</div>
+                </div>
+            </div>
+        </div>
+        
+        <div class="panel">
+            <h2>📊 Line Position</h2>
+            <div class="position-track">
+                <div class="position-center"></div>
+                <div class="position-marker" id="pos-marker"></div>
+            </div>
+            <div style="display: flex; justify-content: space-between; color: #888; font-size: 12px;">
+                <span>0 (Left)</span>
+                <span>3500 (Center)</span>
+                <span>7000 (Right)</span>
+            </div>
+        </div>
+        
+        <div class="panel">
+            <h2>📡 Sensors (0=Left, 7=Right)</h2>
+            <div class="sensor-bar" id="sensor-bar">
+                <!-- Generated by JS -->
+            </div>
+        </div>
+        
+        <div class="panel">
+            <h2>⚙️ Motors</h2>
+            <div class="motors">
+                <div class="motor">
+                    <div>LEFT</div>
+                    <div class="motor-bar">
+                        <div class="motor-fill" id="motor-left"></div>
+                    </div>
+                    <div class="motor-value" id="motor-left-val">0</div>
+                </div>
+                <div class="motor">
+                    <div>RIGHT</div>
+                    <div class="motor-bar">
+                        <div class="motor-fill" id="motor-right"></div>
+                    </div>
+                    <div class="motor-value" id="motor-right-val">0</div>
+                </div>
+            </div>
+        </div>
+        
+        <div class="panel">
+            <h2>🎮 Commands</h2>
+            <div class="commands">
+                <button class="cmd-btn" onclick="sendCmd('l')">Diagnostics (l)</button>
+                <button class="cmd-btn" onclick="sendCmd('s')">Toggle Stream (s)</button>
+                <button class="cmd-btn" onclick="sendCmd('p')">Toggle Polarity (p)</button>
+                <button class="cmd-btn" onclick="sendCmd('1')">Kp+ (1)</button>
+                <button class="cmd-btn" onclick="sendCmd('2')">Kp- (2)</button>
+                <button class="cmd-btn" onclick="sendCmd('3')">Kd+ (3)</button>
+                <button class="cmd-btn" onclick="sendCmd('4')">Kd- (4)</button>
+                <button class="cmd-btn" onclick="sendCmd('5')">Speed+ (5)</button>
+                <button class="cmd-btn" onclick="sendCmd('6')">Speed- (6)</button>
+                <button class="cmd-btn" onclick="sendCmd('t')">Motor Test (t)</button>
+            </div>
+        </div>
+        
+        <div class="panel">
+            <h2>📜 Raw Output</h2>
+            <div class="raw-output serial-log" id="raw"></div>
+        </div>
+    </div>
+    
+    <script>
+        // ===== WebSerial State =====
+        let port = null;
+        let reader = null;
+        let writer = null;
+        let readableStreamClosed = null;
+        let writableStreamClosed = null;
+        let isConnected = false;
+        
+        // ===== Application State =====
+        const state = {
+            position: 3500,
+            error: 0,
+            left_speed: 0,
+            right_speed: 0,
+            mode: "NORMAL",
+            sensors: [0, 0, 0, 0, 0, 0, 0, 0],
+            calibration: {
+                min: [1023, 1023, 1023, 1023, 1023, 1023, 1023, 1023],
+                max: [0, 0, 0, 0, 0, 0, 0, 0],
+                active: false
+            },
+            raw_line: ""
+        };
+        
+        let calibActive = false;
+        let rawLogLines = [];
+        const MAX_LOG_LINES = 50;
+        
+        // ===== Check WebSerial Support =====
+        if (!("serial" in navigator)) {
+            document.getElementById('webusb-notice').style.display = 'block';
+        }
+        
+        // ===== Initialize UI Elements =====
+        const sensorBar = document.getElementById('sensor-bar');
+        for (let i = 0; i < 8; i++) {
+            sensorBar.innerHTML += `
+                <div class="sensor">
+                    <span class="sensor-value" id="sv${i}">0</span>
+                    <div class="sensor-fill" id="sf${i}"></div>
+                    <span class="sensor-label">S${i}</span>
+                </div>
+            `;
+        }
+        
+        const calibGrid = document.getElementById('calib-grid');
+        for (let i = 0; i < 8; i++) {
+            calibGrid.innerHTML += `
+                <div class="calib-sensor">
+                    <div class="label">S${i}</div>
+                    <div class="calib-bar-container">
+                        <div class="calib-bar-range" id="cr${i}"></div>
+                        <div class="calib-bar-min" id="cmin${i}"></div>
+                        <div class="calib-bar-max" id="cmax${i}"></div>
+                        <div class="calib-bar-current" id="cc${i}"></div>
+                    </div>
+                    <div class="calib-values">
+                        <div class="current" id="cv${i}">0</div>
+                        <div><span class="min" id="cvmin${i}">1023</span> - <span class="max" id="cvmax${i}">0</span></div>
+                    </div>
+                </div>
+            `;
+        }
+        
+        // ===== WebSerial Functions =====
+        async function toggleConnection() {
+            if (isConnected) {
+                await disconnect();
+            } else {
+                await connect();
+            }
+        }
+        
+        async function connect() {
+            try {
+                // Request port from user
+                port = await navigator.serial.requestPort();
+                
+                // Open port at 9600 baud (matching Arduino)
+                await port.open({ baudRate: 9600 });
+                
+                isConnected = true;
+                updateConnectionUI();
+                
+                // Set up writer
+                const textEncoder = new TextEncoderStream();
+                writableStreamClosed = textEncoder.readable.pipeTo(port.writable);
+                writer = textEncoder.writable.getWriter();
+                
+                // Set up reader and start reading
+                const textDecoder = new TextDecoderStream();
+                readableStreamClosed = port.readable.pipeTo(textDecoder.writable);
+                reader = textDecoder.readable.getReader();
+                
+                // Start reading loop
+                readLoop();
+                
+            } catch (error) {
+                console.error('Connection error:', error);
+                isConnected = false;
+                updateConnectionUI();
+            }
+        }
+        
+        async function disconnect() {
+            try {
+                if (reader) {
+                    await reader.cancel();
+                    await readableStreamClosed.catch(() => {});
+                    reader = null;
+                }
+                
+                if (writer) {
+                    await writer.close();
+                    await writableStreamClosed;
+                    writer = null;
+                }
+                
+                if (port) {
+                    await port.close();
+                    port = null;
+                }
+                
+            } catch (error) {
+                console.error('Disconnect error:', error);
+            }
+            
+            isConnected = false;
+            updateConnectionUI();
+        }
+        
+        function updateConnectionUI() {
+            const connEl = document.getElementById('connection');
+            const btnEl = document.getElementById('connect-btn');
+            const portEl = document.getElementById('port');
+            
+            if (isConnected) {
+                connEl.textContent = '● Connected';
+                connEl.className = 'connected';
+                btnEl.textContent = 'Disconnect';
+                btnEl.className = 'connect-btn disconnect';
+                portEl.textContent = 'WebSerial';
+            } else {
+                connEl.textContent = '● Disconnected';
+                connEl.className = 'disconnected';
+                btnEl.textContent = 'Connect';
+                btnEl.className = 'connect-btn';
+                portEl.textContent = '';
+            }
+        }
+        
+        let lineBuffer = '';
+        
+        async function readLoop() {
+            try {
+                while (true) {
+                    const { value, done } = await reader.read();
+                    if (done) {
+                        break;
+                    }
+                    if (value) {
+                        // Buffer incoming data and process line by line
+                        lineBuffer += value;
+                        const lines = lineBuffer.split('\n');
+                        
+                        // Process all complete lines
+                        for (let i = 0; i < lines.length - 1; i++) {
+                            parseSerialLine(lines[i]);
+                        }
+                        
+                        // Keep the incomplete line in the buffer
+                        lineBuffer = lines[lines.length - 1];
+                    }
+                }
+            } catch (error) {
+                console.error('Read error:', error);
+            }
+            
+            // Disconnected
+            isConnected = false;
+            updateConnectionUI();
+        }
+        
+        // ===== Serial Line Parsing =====
+        function parseSerialLine(line) {
+            line = line.trim();
+            if (!line) return;
+            
+            // Add to raw log
+            rawLogLines.push(line);
+            if (rawLogLines.length > MAX_LOG_LINES) {
+                rawLogLines.shift();
+            }
+            state.raw_line = rawLogLines.join('\n');
+            
+            // Parse position/error/speed: "pos=3500 err=0 L=150 R=150"
+            let match = line.match(/pos=(\d+)\s+err=(-?\d+)\s+L=(-?\d+)\s+R=(-?\d+)/);
+            if (match) {
+                state.position = parseInt(match[1]);
+                state.error = parseInt(match[2]);
+                state.left_speed = parseInt(match[3]);
+                state.right_speed = parseInt(match[4]);
+                state.mode = "NORMAL";
+                updateUI();
+                return;
+            }
+            
+            // Parse sharp turn: "SHARP pos=500 LEFT L=-200 R=200"
+            match = line.match(/SHARP pos=(\d+)\s+(LEFT|RIGHT)\s+L=(-?\d+)\s+R=(-?\d+)/);
+            if (match) {
+                state.position = parseInt(match[1]);
+                state.mode = `SHARP ${match[2]}`;
+                state.left_speed = parseInt(match[3]);
+                state.right_speed = parseInt(match[4]);
+                updateUI();
+                return;
+            }
+            
+            // Parse lost line: "LOST! Spinning LEFT"
+            if (line.includes("LOST!")) {
+                state.mode = "LOST";
+                if (line.includes("LEFT")) {
+                    state.mode = "LOST LEFT";
+                } else if (line.includes("RIGHT")) {
+                    state.mode = "LOST RIGHT";
+                }
+                updateUI();
+                return;
+            }
+            
+            // Parse compact sensor stream: "RAW:657,636,559,523,536,442,430,493"
+            if (line.startsWith('RAW:')) {
+                try {
+                    const values = line.substring(4).split(',');
+                    for (let i = 0; i < Math.min(values.length, 8); i++) {
+                        const val = parseInt(values[i]);
+                        state.sensors[i] = val;
+                        
+                        // Update calibration if active
+                        if (state.calibration.active) {
+                            if (val < state.calibration.min[i]) {
+                                state.calibration.min[i] = val;
+                            }
+                            if (val > state.calibration.max[i]) {
+                                state.calibration.max[i] = val;
+                            }
+                        }
+                    }
+                } catch (e) {}
+                updateUI();
+                return;
+            }
+            
+            // Parse sensor diagnostics: "  S0 (A0): 657" (with optional leading spaces)
+            match = line.match(/S(\d)\s*\(A\d\):\s*(\d+)/);
+            if (match) {
+                const idx = parseInt(match[1]);
+                const val = parseInt(match[2]);
+                if (idx >= 0 && idx < 8) {
+                    state.sensors[idx] = val;
+                    
+                    // Update calibration if active
+                    if (state.calibration.active) {
+                        if (val < state.calibration.min[idx]) {
+                            state.calibration.min[idx] = val;
+                        }
+                        if (val > state.calibration.max[idx]) {
+                            state.calibration.max[idx] = val;
+                        }
+                    }
+                }
+                updateUI();
+                return;
+            }
+            
+            // Update UI for any other line
+            updateUI();
+        }
+        
+        // ===== Send Command =====
+        async function sendCmd(cmd) {
+            if (!isConnected || !writer) {
+                console.log('Not connected');
+                return;
+            }
+            
+            try {
+                await writer.write(cmd);
+            } catch (error) {
+                console.error('Write error:', error);
+            }
+        }
+        
+        // ===== Calibration Functions =====
+        async function startCalib() {
+            state.calibration.active = true;
+            state.calibration.min = [1023, 1023, 1023, 1023, 1023, 1023, 1023, 1023];
+            state.calibration.max = [0, 0, 0, 0, 0, 0, 0, 0];
+            calibActive = true;
+            
+            // Send 'l' to get sensor diagnostics
+            await sendCmd('l');
+            
+            updateUI();
+        }
+        
+        function stopCalib() {
+            state.calibration.active = false;
+            calibActive = false;
+            
+            // Generate Arduino code
+            const code = generateCalibrationCode();
+            const codeOutput = document.getElementById('code-output');
+            codeOutput.style.display = 'block';
+            codeOutput.textContent = code;
+            
+            updateUI();
+        }
+        
+        function resetCalib() {
+            state.calibration.active = false;
+            state.calibration.min = [1023, 1023, 1023, 1023, 1023, 1023, 1023, 1023];
+            state.calibration.max = [0, 0, 0, 0, 0, 0, 0, 0];
+            calibActive = false;
+            
+            document.getElementById('code-output').style.display = 'none';
+            updateUI();
+        }
+        
+        function generateCalibrationCode() {
+            const mins = state.calibration.min;
+            const maxs = state.calibration.max;
+            
+            let code = '// Generated calibration values - paste into line_follower.cpp\n\n';
+            code += '// Minimum values (white/floor)\n';
+            code += 'static int sensorMin[NUM_SENSORS] = {';
+            code += mins.join(', ');
+            code += '};\n\n';
+            code += '// Maximum values (black/line)\n';
+            code += 'static int sensorMax[NUM_SENSORS] = {';
+            code += maxs.join(', ');
+            code += '};\n';
+            
+            return code;
+        }
+        
+        // ===== UI Update =====
+        function updateUI() {
+            // Calibration status
+            const calibStatus = document.getElementById('calib-status');
+            if (state.calibration.active) {
+                calibStatus.textContent = 'RECORDING';
+                calibStatus.className = 'calib-status active';
+            } else {
+                calibStatus.textContent = 'INACTIVE';
+                calibStatus.className = 'calib-status inactive';
+            }
+            
+            // Update calibration visualization
+            for (let i = 0; i < 8; i++) {
+                const current = state.sensors[i];
+                const min = state.calibration.min[i];
+                const max = state.calibration.max[i];
+                
+                // Current value bar
+                const currentPercent = (current / 1023) * 100;
+                document.getElementById(`cc${i}`).style.bottom = currentPercent + '%';
+                document.getElementById(`cv${i}`).textContent = current;
+                
+                // Min/max lines
+                const minPercent = (min / 1023) * 100;
+                const maxPercent = (max / 1023) * 100;
+                document.getElementById(`cmin${i}`).style.bottom = minPercent + '%';
+                document.getElementById(`cmax${i}`).style.bottom = maxPercent + '%';
+                
+                // Range fill
+                const rangeEl = document.getElementById(`cr${i}`);
+                rangeEl.style.bottom = minPercent + '%';
+                rangeEl.style.height = (maxPercent - minPercent) + '%';
+                
+                // Values
+                document.getElementById(`cvmin${i}`).textContent = min;
+                document.getElementById(`cvmax${i}`).textContent = max;
+            }
+            
+            // Mode
+            const modeEl = document.getElementById('mode');
+            modeEl.textContent = state.mode;
+            modeEl.className = 'mode ' + (state.mode.includes('SHARP') ? 'SHARP' : 
+                                          state.mode.includes('LOST') ? 'LOST' : 'NORMAL');
+            
+            // Stats
+            document.getElementById('position').textContent = state.position;
+            document.getElementById('error').textContent = state.error;
+            document.getElementById('left_speed').textContent = state.left_speed;
+            document.getElementById('right_speed').textContent = state.right_speed;
+            
+            // Position marker (0-7000 -> 0-100%)
+            const posPercent = (state.position / 7000) * 100;
+            document.getElementById('pos-marker').style.left = posPercent + '%';
+            
+            // Sensors
+            for (let i = 0; i < 8; i++) {
+                const val = state.sensors[i];
+                const percent = (val / 1023) * 100;
+                document.getElementById(`sf${i}`).style.height = percent + '%';
+                document.getElementById(`sv${i}`).textContent = val;
+            }
+            
+            // Motors
+            const maxSpeed = 255;
+            const leftSpeed = state.left_speed;
+            const rightSpeed = state.right_speed;
+            
+            const leftEl = document.getElementById('motor-left');
+            const rightEl = document.getElementById('motor-right');
+            
+            if (leftSpeed >= 0) {
+                leftEl.style.bottom = '50%';
+                leftEl.style.height = (leftSpeed / maxSpeed * 50) + '%';
+                leftEl.className = 'motor-fill';
+            } else {
+                leftEl.style.bottom = (50 + leftSpeed / maxSpeed * 50) + '%';
+                leftEl.style.height = (-leftSpeed / maxSpeed * 50) + '%';
+                leftEl.className = 'motor-fill reverse';
+            }
+            
+            if (rightSpeed >= 0) {
+                rightEl.style.bottom = '50%';
+                rightEl.style.height = (rightSpeed / maxSpeed * 50) + '%';
+                rightEl.className = 'motor-fill';
+            } else {
+                rightEl.style.bottom = (50 + rightSpeed / maxSpeed * 50) + '%';
+                rightEl.style.height = (-rightSpeed / maxSpeed * 50) + '%';
+                rightEl.className = 'motor-fill reverse';
+            }
+            
+            document.getElementById('motor-left-val').textContent = leftSpeed;
+            document.getElementById('motor-right-val').textContent = rightSpeed;
+            
+            // Raw output
+            document.getElementById('raw').textContent = state.raw_line;
+            // Auto-scroll to bottom
+            const rawEl = document.getElementById('raw');
+            rawEl.scrollTop = rawEl.scrollHeight;
+        }
+        
+        // Keep sensor diagnostics streaming during calibration
+        setInterval(() => {
+            if (calibActive && isConnected) {
+                sendCmd('l');
+            }
+        }, 500);
+        
+        // Initial UI update
+        updateUI();
+    </script>
+</body>
+</html>
