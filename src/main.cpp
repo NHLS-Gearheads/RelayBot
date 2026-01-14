@@ -35,6 +35,8 @@ const int ECHO_LEFT = 2;
 bool in = false;
 long distFront, distRight, distLeft;
 
+bool noncal = true;
+
 const int GP = 7;
 
 bool cal = false;
@@ -125,32 +127,36 @@ void setup()
   pinMode(7, INPUT);
   pinMode(8, INPUT);
 
-  delay(3000); // 3-second startup delay
-  openGripper();
-  analogWrite(MA1, 160);
-  analogWrite(MA2, 0);
-
-  analogWrite(MB1, 180);
-  analogWrite(MB2, 0);
-  delay(1500);
-  stopMotors();
-  analogWrite(MA1, 0);
-  analogWrite(MA2, 0);
-  closeGripper();
-  analogWrite(MB1, 180);
-  analogWrite(MB2, 0);
-  delay(1200);
   
-  analogWrite(MA1, 160);
-  analogWrite(MA2, 0);
-
-  analogWrite(MB1, 180);
-  analogWrite(MB2, 0);
-  delay(1500);
 }
 
 void loop()
 {
+  if(noncal){
+    delay(3000); // 3-second startup delay
+    openGripper();
+    analogWrite(MA1, 160);
+    analogWrite(MA2, 0);
+
+    analogWrite(MB1, 180);
+    analogWrite(MB2, 0);
+    delay(1500);
+    stopMotors();
+    analogWrite(MA1, 0);
+    analogWrite(MA2, 0);
+    closeGripper();
+    analogWrite(MB1, 180);
+    analogWrite(MB2, 0);
+    delay(1200);
+    
+    analogWrite(MA1, 160);
+    analogWrite(MA2, 0);
+
+    analogWrite(MB1, 180);
+    analogWrite(MB2, 0);
+    delay(1500);
+    noncal = false;
+  }
   distLeft = readDistance(TRIG_LEFT, ECHO_LEFT);
   distRight = readDistance(TRIG_RIGHT, ECHO_RIGHT);
   distFront = readDistance(TRIG_FRONT, ECHO_FRONT);
