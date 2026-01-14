@@ -1,0 +1,837 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>RelayBot Digital Twin Dashboard</title>
+    <style>
+        :root {
+            --bg-primary: #0a0a0f;
+            --bg-secondary: #12121a;
+            --bg-card: #1a1a24;
+            --accent-green: #00ff88;
+            --accent-blue: #00aaff;
+            --accent-red: #ff4444;
+            --accent-yellow: #ffaa00;
+            --accent-purple: #aa55ff;
+            --text-primary: #ffffff;
+            --text-secondary: #888899;
+            --border-color: #2a2a3a;
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', 'SF Pro Display', -apple-system, sans-serif;
+            background: var(--bg-primary);
+            color: var(--text-primary);
+            min-height: 100vh;
+        }
+
+        .header {
+            background: var(--bg-secondary);
+            border-bottom: 1px solid var(--border-color);
+            padding: 1rem 2rem;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .header h1 {
+            font-size: 1.5rem;
+            font-weight: 600;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .header h1::before {
+            content: '🤖';
+        }
+
+        .connection-status {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            padding: 0.5rem 1rem;
+            border-radius: 20px;
+            font-size: 0.85rem;
+            background: var(--bg-card);
+        }
+
+        .status-dot {
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            animation: pulse 2s infinite;
+        }
+
+        .status-dot.connected {
+            background: var(--accent-green);
+            box-shadow: 0 0 10px var(--accent-green);
+        }
+
+        .status-dot.disconnected {
+            background: var(--accent-red);
+            box-shadow: 0 0 10px var(--accent-red);
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+
+        .dashboard {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 1.5rem;
+            padding: 1.5rem;
+            max-width: 1800px;
+            margin: 0 auto;
+        }
+
+        @media (max-width: 1400px) {
+            .dashboard {
+                grid-template-columns: repeat(2, 1fr);
+            }
+        }
+
+        @media (max-width: 900px) {
+            .dashboard {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        .robot-card {
+            background: var(--bg-card);
+            border-radius: 16px;
+            border: 1px solid var(--border-color);
+            overflow: hidden;
+            transition: transform 0.2s, box-shadow 0.2s;
+            min-height: 480px;
+        }
+
+        .robot-card:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 30px rgba(0, 0, 0, 0.3);
+        }
+
+        .robot-card.disconnected {
+            opacity: 0.5;
+        }
+
+        .robot-header {
+            padding: 1rem 1.5rem;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border-bottom: 1px solid var(--border-color);
+        }
+
+        .robot-header.r1 { border-left: 4px solid var(--accent-green); }
+        .robot-header.r2 { border-left: 4px solid var(--accent-blue); }
+        .robot-header.r3 { border-left: 4px solid var(--accent-purple); }
+
+        .robot-name {
+            font-size: 1.25rem;
+            font-weight: 600;
+        }
+
+        .robot-uptime {
+            color: var(--text-secondary);
+            font-size: 0.85rem;
+        }
+
+        .robot-controls {
+            display: flex;
+            gap: 0.5rem;
+            align-items: center;
+        }
+
+        .btn-start {
+            padding: 0.5rem 1rem;
+            border: none;
+            border-radius: 8px;
+            font-weight: 600;
+            font-size: 0.85rem;
+            cursor: pointer;
+            transition: all 0.2s;
+            display: flex;
+            align-items: center;
+            gap: 0.25rem;
+        }
+
+        .btn-start.waiting {
+            background: var(--accent-yellow);
+            color: #000;
+        }
+
+        .btn-start.waiting:hover {
+            background: #ffcc00;
+            transform: scale(1.05);
+        }
+
+        .btn-start.running {
+            background: var(--accent-green);
+            color: #000;
+        }
+
+        .btn-start.running:hover {
+            background: #00cc6a;
+        }
+
+        .btn-start.stopped {
+            background: var(--text-secondary);
+            color: #000;
+            cursor: not-allowed;
+        }
+
+        .btn-start:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
+        .btn-gripper {
+            padding: 0.4rem 0.6rem;
+            border: 1px solid var(--border-color);
+            border-radius: 6px;
+            background: var(--bg-card);
+            color: var(--text-primary);
+            font-size: 1rem;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .btn-gripper:hover {
+            background: var(--accent-purple);
+            border-color: var(--accent-purple);
+            transform: scale(1.1);
+        }
+
+        .btn-gripper:active {
+            transform: scale(0.95);
+        }
+
+        .robot-body {
+            padding: 1.5rem;
+        }
+
+        .state-badge {
+            display: inline-block;
+            padding: 0.5rem 1rem;
+            border-radius: 8px;
+            font-weight: 600;
+            font-size: 0.9rem;
+            margin-bottom: 1rem;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            min-width: 100px;
+            text-align: center;
+        }
+
+        .state-badge.follow { background: rgba(0, 255, 136, 0.15); color: var(--accent-green); }
+        .state-badge.turn { background: rgba(0, 170, 255, 0.15); color: var(--accent-blue); }
+        .state-badge.obstacle { background: rgba(255, 68, 68, 0.15); color: var(--accent-red); }
+        .state-badge.waiting { background: rgba(255, 204, 0, 0.15); color: var(--accent-yellow); }
+        .state-badge.unknown { background: rgba(136, 136, 153, 0.15); color: var(--text-secondary); }
+
+        .metrics-grid {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 1rem;
+            margin-bottom: 1rem;
+        }
+
+        .metric {
+            background: var(--bg-secondary);
+            padding: 1rem;
+            border-radius: 10px;
+        }
+
+        .metric-label {
+            font-size: 0.75rem;
+            color: var(--text-secondary);
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            margin-bottom: 0.25rem;
+        }
+
+        .metric-value {
+            font-size: 1.5rem;
+            font-weight: 600;
+            font-variant-numeric: tabular-nums;
+            min-width: 60px;
+        }
+
+        .metric-value.speed { color: var(--accent-green); }
+        .metric-value.distance { color: var(--accent-blue); }
+        .metric-value.ticks { color: var(--accent-yellow); }
+        .metric-value.line { color: var(--accent-purple); }
+
+        .flags-container {
+            display: flex;
+            gap: 0.5rem;
+            flex-wrap: wrap;
+            margin-bottom: 1rem;
+        }
+
+        .flag {
+            padding: 0.35rem 0.75rem;
+            border-radius: 6px;
+            font-size: 0.75rem;
+            font-weight: 500;
+            background: var(--bg-secondary);
+            color: var(--text-secondary);
+            border: 1px solid var(--border-color);
+        }
+
+        .flag.active {
+            background: rgba(0, 255, 136, 0.15);
+            color: var(--accent-green);
+            border-color: var(--accent-green);
+        }
+
+        .messages-container {
+            background: var(--bg-secondary);
+            border-radius: 10px;
+            padding: 0.75rem;
+            height: 120px;
+            min-height: 120px;
+            max-height: 120px;
+            overflow-y: auto;
+        }
+
+        .message {
+            font-size: 0.75rem;
+            font-family: 'Monaco', 'Consolas', monospace;
+            padding: 0.25rem 0;
+            border-bottom: 1px solid var(--border-color);
+            display: flex;
+            gap: 0.5rem;
+        }
+
+        .message:last-child {
+            border-bottom: none;
+        }
+
+        .message-time {
+            color: var(--text-secondary);
+            flex-shrink: 0;
+        }
+
+        .message-text {
+            color: var(--accent-green);
+            word-break: break-all;
+        }
+
+        .encoder-bar {
+            display: flex;
+            gap: 0.5rem;
+            margin-top: 0.5rem;
+        }
+
+        .encoder-bar > div {
+            flex: 1;
+            background: var(--bg-primary);
+            border-radius: 4px;
+            overflow: hidden;
+            height: 8px;
+        }
+
+        .encoder-fill {
+            height: 100%;
+            transition: width 0.3s;
+        }
+
+        .encoder-fill.left {
+            background: linear-gradient(90deg, var(--accent-green), var(--accent-blue));
+        }
+
+        .encoder-fill.right {
+            background: linear-gradient(90deg, var(--accent-blue), var(--accent-purple));
+        }
+
+        .distance-indicator {
+            position: relative;
+            height: 20px;
+            background: var(--bg-primary);
+            border-radius: 4px;
+            margin-top: 0.5rem;
+            overflow: hidden;
+        }
+
+        .distance-bar {
+            height: 100%;
+            transition: width 0.3s, background 0.3s;
+            border-radius: 4px;
+        }
+
+        .distance-bar.close {
+            background: linear-gradient(90deg, var(--accent-red), var(--accent-yellow));
+        }
+
+        .distance-bar.medium {
+            background: linear-gradient(90deg, var(--accent-yellow), var(--accent-green));
+        }
+
+        .distance-bar.far {
+            background: var(--accent-green);
+        }
+
+        .no-data {
+            text-align: center;
+            padding: 2rem;
+            color: var(--text-secondary);
+            min-height: 350px;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+        }
+
+        /* Scrollbar styling */
+        ::-webkit-scrollbar {
+            width: 6px;
+        }
+
+        ::-webkit-scrollbar-track {
+            background: var(--bg-secondary);
+            border-radius: 3px;
+        }
+
+        ::-webkit-scrollbar-thumb {
+            background: var(--border-color);
+            border-radius: 3px;
+        }
+
+        ::-webkit-scrollbar-thumb:hover {
+            background: var(--text-secondary);
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>RelayBot Digital Twin</h1>
+        <div class="connection-status" id="serial-status">
+            <div class="status-dot disconnected" id="status-dot"></div>
+            <span id="status-text">Connecting...</span>
+        </div>
+    </div>
+
+    <div class="dashboard" id="dashboard">
+        <!-- Robot cards will be generated by JavaScript -->
+    </div>
+
+    <script>
+        const POLL_INTERVAL = 500; // ms
+
+        async function sendCommand(robotId, command) {
+            try {
+                const response = await fetch('/api/command', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ 
+                        robot_id: robotId,
+                        command: command.toUpperCase()
+                    })
+                });
+                const data = await response.json();
+                if (data.success) {
+                    console.log(`Command ${command} sent to ${robotId}`);
+                } else {
+                    console.error(`Failed to send command: ${data.error}`);
+                    alert(`Failed to send command: ${data.error}`);
+                }
+            } catch (error) {
+                console.error('Failed to send command:', error);
+                alert('Failed to send command: ' + error.message);
+            }
+        }
+
+        function getStateBadgeClass(state, waiting) {
+            if (waiting) return 'waiting';
+            if (!state) return 'unknown';
+            state = state.toUpperCase();
+            if (state.includes('FOLLOW')) return 'follow';
+            if (state.includes('TURN')) return 'turn';
+            if (state.includes('OBSTACLE') || state.includes('AVOID')) return 'obstacle';
+            return 'unknown';
+        }
+
+        function getDistanceClass(dist) {
+            if (dist < 0) return 'far';
+            if (dist < 15) return 'close';
+            if (dist < 40) return 'medium';
+            return 'far';
+        }
+
+        function getDistanceWidth(dist) {
+            if (dist < 0) return 0;
+            // Scale: 0cm = 100%, 100cm = 0%
+            return Math.max(0, Math.min(100, 100 - dist));
+        }
+
+        function createRobotCard(robotId, data) {
+            const color = robotId.toLowerCase();
+            const connected = data.connected;
+            const waiting = !data.flags?.game_started && connected;
+            const finished = data.flags?.game_ended;
+            
+            let btnClass = 'stopped';
+            let btnText = '⏹️ Stopped';
+            let btnDisabled = true;
+            
+            if (connected) {
+                if (finished) {
+                    btnClass = 'stopped';
+                    btnText = '🏆 Finished';
+                    btnDisabled = true;
+                } else if (waiting) {
+                    btnClass = 'waiting';
+                    btnText = '▶️ Start';
+                    btnDisabled = false;
+                } else {
+                    btnClass = 'running';
+                    btnText = '🏃 Running';
+                    btnDisabled = false;
+                }
+            }
+            
+            return `
+                <div class="robot-card ${connected ? '' : 'disconnected'}">
+                    <div class="robot-header ${color}">
+                        <div class="robot-name">${robotId}</div>
+                        <div class="robot-controls">
+                            <button class="btn-start ${btnClass}" 
+                                    onclick="sendCommand('${robotId}', '${waiting ? 'start' : 'stop'}')"
+                                    ${btnDisabled ? 'disabled' : ''}>
+                                ${btnText}
+                            </button>
+                            <button class="btn-gripper" onclick="sendCommand('${robotId}', 'GRIP:OPEN')" title="Open Gripper">🖐️</button>
+                            <button class="btn-gripper" onclick="sendCommand('${robotId}', 'GRIP:CLOSE')" title="Close Gripper">✊</button>
+                            <div class="robot-uptime">⏱️ ${data.uptime || '--'}</div>
+                        </div>
+                    </div>
+                    <div class="robot-body">
+                        ${connected ? `
+                            <div class="state-badge ${getStateBadgeClass(data.state, waiting)}">
+                                ${waiting ? 'WAITING' : (data.state || 'UNKNOWN')}
+                            </div>
+                            
+                            <div class="metrics-grid">
+                                <div class="metric">
+                                    <div class="metric-label">Speed</div>
+                                    <div class="metric-value speed">${data.speed || 0}</div>
+                                </div>
+                                <div class="metric">
+                                    <div class="metric-label">Distance</div>
+                                    <div class="metric-value distance">${data.distance >= 0 ? data.distance + 'cm' : '--'}</div>
+                                </div>
+                                <div class="metric">
+                                    <div class="metric-label">Left Ticks</div>
+                                    <div class="metric-value ticks">${data.left_ticks || 0}</div>
+                                </div>
+                                <div class="metric">
+                                    <div class="metric-label">Right Ticks</div>
+                                    <div class="metric-value ticks">${data.right_ticks || 0}</div>
+                                </div>
+                            </div>
+                            
+                            <div class="metric">
+                                <div class="metric-label">Line Position</div>
+                                <div class="metric-value line">${data.line_position || 'UNKNOWN'}</div>
+                            </div>
+                            
+                            <div class="metric-label" style="margin-top: 1rem;">Distance to Obstacle</div>
+                            <div class="distance-indicator">
+                                <div class="distance-bar ${getDistanceClass(data.distance)}" 
+                                     style="width: ${getDistanceWidth(data.distance)}%"></div>
+                            </div>
+                            
+                            <div class="metric-label" style="margin-top: 1rem;">Game Flags</div>
+                            <div class="flags-container">
+                                <span class="flag ${data.flags?.calibrated ? 'active' : ''}">📐 Calibrated</span>
+                                <span class="flag ${data.flags?.cone_picked ? 'active' : ''}">🎯 Cone Picked</span>
+                                <span class="flag ${data.flags?.game_started ? 'active' : ''}">🏁 Started</span>
+                                <span class="flag ${data.flags?.cone_dropped ? 'active' : ''}">📦 Dropped</span>
+                                <span class="flag ${data.flags?.game_ended ? 'active' : ''}">🏆 Finished</span>
+                            </div>
+                            
+                            <div class="metric-label">Messages</div>
+                            <div class="messages-container">
+                                ${(data.messages || []).slice(-5).reverse().map(m => `
+                                    <div class="message">
+                                        <span class="message-time">${m.time}</span>
+                                        <span class="message-text">${m.text}</span>
+                                    </div>
+                                `).join('') || '<div class="message"><span class="message-text">No messages</span></div>'}
+                            </div>
+                        ` : `
+                            <div class="no-data">
+                                <p>📡 Waiting for connection...</p>
+                                <p style="font-size: 0.8rem; margin-top: 0.5rem;">No telemetry received</p>
+                            </div>
+                        `}
+                    </div>
+                </div>
+            `;
+        }
+
+        // Track previous state to detect changes requiring full rebuild
+        let previousState = {};
+        let cardsInitialized = false;
+
+        function updateRobotCard(robotId, data) {
+            const card = document.getElementById(`card-${robotId}`);
+            if (!card) return false;  // Need full rebuild
+            
+            const connected = data.connected;
+            const waiting = !data.flags?.game_started && connected;
+            const finished = data.flags?.game_ended;
+            
+            // Check if connection state changed - needs full rebuild
+            const prevConnected = previousState[robotId]?.connected;
+            if (prevConnected !== connected) {
+                return false;  // Need full rebuild
+            }
+            
+            // Update in-place
+            card.className = `robot-card ${connected ? '' : 'disconnected'}`;
+            
+            // Update button
+            const btn = document.getElementById(`btn-${robotId}`);
+            if (btn) {
+                btn.className = `btn-start ${finished ? 'stopped' : waiting ? 'waiting' : 'running'}`;
+                btn.innerHTML = finished ? '🏆 Finished' : waiting ? '▶️ Start' : '🏃 Running';
+                btn.disabled = !connected || finished;
+                btn.onclick = () => sendCommand(robotId, waiting ? 'start' : 'stop');
+            }
+            
+            // Update uptime
+            const uptime = document.getElementById(`uptime-${robotId}`);
+            if (uptime) uptime.textContent = `⏱️ ${data.uptime || '--'}`;
+            
+            if (connected) {
+                // Update state badge
+                const badge = document.getElementById(`state-${robotId}`);
+                if (badge) {
+                    badge.className = `state-badge ${getStateBadgeClass(data.state, waiting)}`;
+                    badge.textContent = waiting ? 'WAITING' : (data.state || 'UNKNOWN');
+                }
+                
+                // Update metrics
+                const speed = document.getElementById(`speed-${robotId}`);
+                if (speed) speed.textContent = data.speed || 0;
+                
+                const dist = document.getElementById(`dist-${robotId}`);
+                if (dist) dist.textContent = data.distance >= 0 ? data.distance + 'cm' : '--';
+                
+                const leftTicks = document.getElementById(`left-${robotId}`);
+                if (leftTicks) leftTicks.textContent = data.left_ticks || 0;
+                
+                const rightTicks = document.getElementById(`right-${robotId}`);
+                if (rightTicks) rightTicks.textContent = data.right_ticks || 0;
+                
+                const linePos = document.getElementById(`line-${robotId}`);
+                if (linePos) linePos.textContent = data.line_position || 'UNKNOWN';
+                
+                // Update distance bar
+                const distBar = document.getElementById(`distbar-${robotId}`);
+                if (distBar) {
+                    distBar.className = `distance-bar ${getDistanceClass(data.distance)}`;
+                    distBar.style.width = `${getDistanceWidth(data.distance)}%`;
+                }
+                
+                // Update flags
+                const flags = ['calibrated', 'cone_picked', 'game_started', 'cone_dropped', 'game_ended'];
+                const flagIds = ['cal', 'pick', 'start', 'drop', 'end'];
+                flags.forEach((flag, i) => {
+                    const el = document.getElementById(`flag-${flagIds[i]}-${robotId}`);
+                    if (el) el.className = `flag ${data.flags?.[flag] ? 'active' : ''}`;
+                });
+                
+                // Update messages
+                const msgContainer = document.getElementById(`msgs-${robotId}`);
+                if (msgContainer) {
+                    const messages = (data.messages || []).slice(-5).reverse();
+                    msgContainer.innerHTML = messages.length > 0 
+                        ? messages.map(m => `
+                            <div class="message">
+                                <span class="message-time">${m.time}</span>
+                                <span class="message-text">${m.text}</span>
+                            </div>
+                        `).join('')
+                        : '<div class="message"><span class="message-text">No messages</span></div>';
+                }
+            }
+            
+            previousState[robotId] = { connected };
+            return true;  // Updated in-place
+        }
+
+        function createRobotCardWithIds(robotId, data) {
+            const color = robotId.toLowerCase();
+            const connected = data.connected;
+            const waiting = !data.flags?.game_started && connected;
+            const finished = data.flags?.game_ended;
+            
+            let btnClass = 'stopped';
+            let btnText = '⏹️ Stopped';
+            let btnDisabled = true;
+            
+            if (connected) {
+                if (finished) {
+                    btnClass = 'stopped';
+                    btnText = '🏆 Finished';
+                    btnDisabled = true;
+                } else if (waiting) {
+                    btnClass = 'waiting';
+                    btnText = '▶️ Start';
+                    btnDisabled = false;
+                } else {
+                    btnClass = 'running';
+                    btnText = '🏃 Running';
+                    btnDisabled = false;
+                }
+            }
+            
+            previousState[robotId] = { connected };
+            
+            return `
+                <div class="robot-card ${connected ? '' : 'disconnected'}" id="card-${robotId}">
+                    <div class="robot-header ${color}">
+                        <div class="robot-name">${robotId}</div>
+                        <div class="robot-controls">
+                            <button class="btn-start ${btnClass}" id="btn-${robotId}"
+                                    onclick="sendCommand('${robotId}', '${waiting ? 'start' : 'stop'}')"
+                                    ${btnDisabled ? 'disabled' : ''}>
+                                ${btnText}
+                            </button>
+                            <button class="btn-gripper" onclick="sendCommand('${robotId}', 'GRIP:OPEN')" title="Open Gripper">🖐️</button>
+                            <button class="btn-gripper" onclick="sendCommand('${robotId}', 'GRIP:CLOSE')" title="Close Gripper">✊</button>
+                            <div class="robot-uptime" id="uptime-${robotId}">⏱️ ${data.uptime || '--'}</div>
+                        </div>
+                    </div>
+                    <div class="robot-body">
+                        ${connected ? `
+                            <div class="state-badge ${getStateBadgeClass(data.state, waiting)}" id="state-${robotId}">
+                                ${waiting ? 'WAITING' : (data.state || 'UNKNOWN')}
+                            </div>
+                            
+                            <div class="metrics-grid">
+                                <div class="metric">
+                                    <div class="metric-label">Speed</div>
+                                    <div class="metric-value speed" id="speed-${robotId}">${data.speed || 0}</div>
+                                </div>
+                                <div class="metric">
+                                    <div class="metric-label">Distance</div>
+                                    <div class="metric-value distance" id="dist-${robotId}">${data.distance >= 0 ? data.distance + 'cm' : '--'}</div>
+                                </div>
+                                <div class="metric">
+                                    <div class="metric-label">Left Ticks</div>
+                                    <div class="metric-value ticks" id="left-${robotId}">${data.left_ticks || 0}</div>
+                                </div>
+                                <div class="metric">
+                                    <div class="metric-label">Right Ticks</div>
+                                    <div class="metric-value ticks" id="right-${robotId}">${data.right_ticks || 0}</div>
+                                </div>
+                            </div>
+                            
+                            <div class="metric">
+                                <div class="metric-label">Line Position</div>
+                                <div class="metric-value line" id="line-${robotId}">${data.line_position || 'UNKNOWN'}</div>
+                            </div>
+                            
+                            <div class="metric-label" style="margin-top: 1rem;">Distance to Obstacle</div>
+                            <div class="distance-indicator">
+                                <div class="distance-bar ${getDistanceClass(data.distance)}" id="distbar-${robotId}"
+                                     style="width: ${getDistanceWidth(data.distance)}%"></div>
+                            </div>
+                            
+                            <div class="metric-label" style="margin-top: 1rem;">Game Flags</div>
+                            <div class="flags-container">
+                                <span class="flag ${data.flags?.calibrated ? 'active' : ''}" id="flag-cal-${robotId}">📐 Calibrated</span>
+                                <span class="flag ${data.flags?.cone_picked ? 'active' : ''}" id="flag-pick-${robotId}">🎯 Cone Picked</span>
+                                <span class="flag ${data.flags?.game_started ? 'active' : ''}" id="flag-start-${robotId}">🏁 Started</span>
+                                <span class="flag ${data.flags?.cone_dropped ? 'active' : ''}" id="flag-drop-${robotId}">📦 Dropped</span>
+                                <span class="flag ${data.flags?.game_ended ? 'active' : ''}" id="flag-end-${robotId}">🏆 Finished</span>
+                            </div>
+                            
+                            <div class="metric-label">Messages</div>
+                            <div class="messages-container" id="msgs-${robotId}">
+                                ${(data.messages || []).slice(-5).reverse().map(m => `
+                                    <div class="message">
+                                        <span class="message-time">${m.time}</span>
+                                        <span class="message-text">${m.text}</span>
+                                    </div>
+                                `).join('') || '<div class="message"><span class="message-text">No messages</span></div>'}
+                            </div>
+                        ` : `
+                            <div class="no-data">
+                                <p>📡 Waiting for connection...</p>
+                                <p style="font-size: 0.8rem; margin-top: 0.5rem;">No telemetry received</p>
+                            </div>
+                        `}
+                    </div>
+                </div>
+            `;
+        }
+
+        async function updateDashboard() {
+            try {
+                const response = await fetch('/api/status');
+                const data = await response.json();
+                
+                // Update serial status
+                const statusDot = document.getElementById('status-dot');
+                const statusText = document.getElementById('status-text');
+                
+                if (data.serial_connected) {
+                    statusDot.className = 'status-dot connected';
+                    statusText.textContent = `Connected: ${data.serial_port}`;
+                } else {
+                    statusDot.className = 'status-dot disconnected';
+                    statusText.textContent = data.serial_error || 'Disconnected';
+                }
+                
+                const dashboard = document.getElementById('dashboard');
+                const robotIds = ['R1', 'R2', 'R3'];
+                
+                // Try in-place update first
+                let needsRebuild = !cardsInitialized;
+                if (!needsRebuild) {
+                    for (const rid of robotIds) {
+                        if (!updateRobotCard(rid, data.robots[rid] || {})) {
+                            needsRebuild = true;
+                            break;
+                        }
+                    }
+                }
+                
+                // Full rebuild if needed
+                if (needsRebuild) {
+                    dashboard.innerHTML = robotIds.map(rid => 
+                        createRobotCardWithIds(rid, data.robots[rid] || {})
+                    ).join('');
+                    cardsInitialized = true;
+                }
+                
+            } catch (error) {
+                console.error('Failed to fetch status:', error);
+            }
+        }
+
+        // Initial update
+        updateDashboard();
+        
+        // Poll for updates
+        setInterval(updateDashboard, POLL_INTERVAL);
+    </script>
+</body>
+</html>
